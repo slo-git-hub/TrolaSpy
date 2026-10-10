@@ -1,0 +1,15 @@
+# Private map page. Put Cloudflare Access ("All traffic") in front of this Worker.
+name = "trolaspy"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "trolaspy"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+# Optional fallback check of the Access JWT header when ctx.access is not populated.
+# Fill both from Zero Trust > Access > Applications > (this app) to enable it.
+ACCESS_TEAM_DOMAIN = ""
+ACCESS_AUD = ""

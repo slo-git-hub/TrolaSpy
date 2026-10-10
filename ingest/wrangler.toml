@@ -1,0 +1,16 @@
+# Public endpoint LeafSpy uploads to. Protected by the LEAFSPY_USER / LEAFSPY_PASS secrets.
+name = "trolaspy-ingest"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "trolaspy"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Daily cleanup of readings older than RETENTION_DAYS.
+[triggers]
+crons = ["17 3 * * *"]
+
+[vars]
+RETENTION_DAYS = "30"

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrolaSpy</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #16191d; --muted: #66707a;
+    --line: #e3e6ea; --accent: #1f7a5a; --warn: #b5651d; --track: #1f6fd1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111417; --panel: #1a1e22; --text: #e8eaed; --muted: #9aa3ad;
+            --line: #2a3036; --accent: #3fbf8f; --warn: #e09a4f; --track: #5aa2ff; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .app { display: grid; grid-template-columns: 1fr 340px; height: 100%; }
+  #map { height: 100%; min-height: 300px; }
+  aside { background: var(--panel); border-left: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .updated { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .updated.stale { color: var(--warn); }
+  .soc { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .soc b { font-size: 40px; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin-bottom: 14px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .state { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 13px;
+    background: var(--line); margin: 0 4px 12px 0; }
+  .state.on { background: var(--accent); color: #fff; }
+  dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0 0 16px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .range { display: flex; gap: 6px; margin-bottom: 10px; }
+  .range button { flex: 1; padding: 6px 0; border: 1px solid var(--line); border-radius: 6px;
+    background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+  .range button.active { background: var(--track); border-color: var(--track); color: #fff; }
+  .chart-label { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+  svg.chart { width: 100%; height: 70px; display: block; }
+  svg.chart path { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .empty { color: var(--muted); }
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; }
+    #map { height: 55vh; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="map"></div>
+  <aside>
+    <h1>Trola</h1>
+    <div class="updated" id="updated">Loading…</div>
+    <div class="soc"><b id="soc">–</b><span id="gids" class="empty"></span></div>
+    <div class="bar"><div id="socbar"></div></div>
+    <div id="states"></div>
+    <dl id="stats"></dl>
+    <div class="range" id="range">
+      <button data-h="24" class="active">24 h</button>
+      <button data-h="168">7 days</button>
+      <button data-h="720">30 days</button>
+    </div>
+    <div class="chart-label">Battery % over this range</div>
+    <svg class="chart" id="chart" viewBox="0 0 300 70" preserveAspectRatio="none"><path id="chartpath"/></svg>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const map = L.map('map', { zoomControl: true }).setView([46.05, 14.5], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
+}).addTo(map);
+
+const trackColor = getComputedStyle(document.documentElement).getPropertyValue('--track').trim();
+const trackLine = L.polyline([], { color: trackColor, weight: 4, opacity: 0.8 }).addTo(map);
+const marker = L.circleMarker([0, 0], { radius: 9, color: '#fff', weight: 3, fillColor: trackColor, fillOpacity: 1 });
+let hours = 24;
+let firstFit = true;
+
+const fmt = (v, digits = 0, unit = '') => (v === null || v === undefined ? '–' : `${Number(v).toFixed(digits)}${unit}`);
+const PLUG = { 0: 'Unplugged', 1: 'Plug partly in', 2: 'Plugged in' };
+const CHARGE = { 1: 'Charging (L1)', 2: 'Charging (L2)', 3: 'Quick charging' };
+
+function ago(ts) {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(ts).toLocaleString();
+}
+
+function renderLatest({ reading: r, lastPosition }) {
+  if (!r) { $('updated').textContent = 'No data yet. Waiting for LeafSpy.'; return; }
+  const stale = Date.now() - r.ts > 5 * 60 * 1000;
+  $('updated').textContent = `Updated ${ago(r.ts)}` + (stale ? ' (LeafSpy not sending)' : '');
+  $('updated').classList.toggle('stale', stale);
+  $('soc').textContent = fmt(r.soc, 1, '%');
+  $('gids').textContent = r.gids !== null ? `${r.gids} Gids` : '';
+  $('socbar').style.width = `${Math.max(0, Math.min(100, r.soc || 0))}%`;
+
+  const states = [];
+  states.push(`<span class="state ${r.pwr_sw === 1 ? 'on' : ''}">${r.pwr_sw === 1 ? 'Car on' : 'Car off'}</span>`);
+  if (r.plug_state !== null) states.push(`<span class="state">${PLUG[r.plug_state] || 'Plug ?'}</span>`);
+  if (CHARGE[r.chrg_mode]) states.push(`<span class="state on">${CHARGE[r.chrg_mode]}</span>`);
+  $('states').innerHTML = states.join('');
+
+  const rows = [
+    ['Speed', fmt(r.speed, 0, ' km/h')],
+    ['Charge power', r.chrg_pwr ? fmt(r.chrg_pwr / 1000, 1, ' kW') : '–'],
+    ['Battery health', fmt(r.soh, 1, '%')],
+    ['Battery temp', fmt(r.bat_temp, 1, ' °C')],
+    ['Outside temp', fmt(r.amb_temp, 1, ' °C')],
+    ['Battery', `${fmt(r.bat_volts, 0, ' V')} · ${fmt(r.bat_amps, 1, ' A')}`],
+    ['Odometer', fmt(r.odo, 0, ' km')],
+    ['Elevation', fmt(r.elv, 0, ' m')],
+    ['Tablet battery', fmt(r.dev_bat, 0, '%')],
+  ];
+  $('stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+
+  const pos = r.lat !== null ? r : lastPosition;
+  if (pos && pos.lat !== null) {
+    marker.setLatLng([pos.lat, pos.lon]).addTo(map)
+      .bindTooltip(r.lat !== null ? 'Trola now' : `Last GPS fix ${ago(pos.ts)}`);
+    if (firstFit) { map.setView([pos.lat, pos.lon], 14); firstFit = false; }
+  }
+}
+
+function renderTrack({ points }) {
+  trackLine.setLatLngs(points.filter((p) => p.lat !== null).map((p) => [p.lat, p.lon]));
+  if (firstFit && trackLine.getLatLngs().length > 1) {
+    map.fitBounds(trackLine.getBounds(), { padding: [30, 30], maxZoom: 15 });
+    firstFit = false;
+  }
+  const soc = points.filter((p) => p.soc !== null);
+  if (soc.length < 2) { $('chartpath').setAttribute('d', ''); return; }
+  const t0 = soc[0].ts, t1 = soc[soc.length - 1].ts;
+  const d = soc.map((p, i) => {
+    const x = ((p.ts - t0) / Math.max(1, t1 - t0)) * 300;
+    const y = 66 - (p.soc / 100) * 62;
+    return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join('');
+  $('chartpath').setAttribute('d', d);
+}
+
+async function refresh(withTrack = true) {
+  try {
+    const [latest, track] = await Promise.all([
+      fetch('/api/latest').then((r) => r.json()),
+      withTrack ? fetch(`/api/track?hours=${hours}`).then((r) => r.json()) : null,
+    ]);
+    if (track) renderTrack(track);
+    renderLatest(latest);
+  } catch (e) {
+    $('updated').textContent = 'Could not load data. Retrying…';
+  }
+}
+
+$('range').addEventListener('click', (e) => {
+  const h = e.target.dataset && e.target.dataset.h;
+  if (!h) return;
+  hours = Number(h);
+  document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('active', b === e.target));
+  refresh(true).then(() => { if (trackLine.getLatLngs().length) map.fitBounds(trackLine.getBounds(), { padding: [30, 30] }); });
+});
+
+refresh(true);
+setInterval(() => refresh(true), 15000);
+</script>
+</body>
+</html>
