@@ -62,12 +62,22 @@ You need a free Cloudflare account and Node 20+.
    - `URL`: `trolaspy-ingest.<you>.workers.dev` (no `http://` prefix)
 7. Drive around the block and watch the page.
 
-### Optional: deploy from GitHub
+### Deploy from GitHub (no terminal needed)
 
-`.github/workflows/deploy.yml` runs tests on every push and, once enabled,
-deploys `main` to Cloudflare. To enable it, add repo secrets
-`CLOUDFLARE_API_TOKEN` (template "Edit Cloudflare Workers" plus D1 edit) and
-`CLOUDFLARE_ACCOUNT_ID`, and the repo variable `DEPLOY_ENABLED=true`.
+`.github/workflows/deploy.yml` runs tests on every push to `main` and then deploys:
+it creates the `trolaspy` D1 database if needed, applies `schema.sql`, deploys both
+Workers and sets the LeafSpy login. The deploy job skips itself until these repo
+secrets exist (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | API token with Account → Workers Scripts: Edit, D1: Edit, Account Settings: Read |
+| `CLOUDFLARE_ACCOUNT_ID` | Your account ID (Workers & Pages overview, right-hand side) |
+| `LEAFSPY_USER` | The ID you'll type into LeafSpy |
+| `LEAFSPY_PASS` | The password you'll type into LeafSpy |
+
+Then run Actions → Deploy → Run workflow. Steps 5–7 above (Access, LeafSpy,
+test drive) are still done by hand.
 
 ### Optional: extra Access check
 
