@@ -1,4 +1,5 @@
 import page from './page.html';
+import logo from './logo.svg';
 import { isAuthorized } from './access.js';
 
 const MAX_HOURS = 30 * 24;
@@ -43,6 +44,9 @@ export default {
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await track(env, hours));
+    }
+    if (url.pathname === '/logo') {
+      return new Response(logo, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'private, max-age=3600' } });
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });

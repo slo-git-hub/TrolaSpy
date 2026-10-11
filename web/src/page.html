@@ -2,160 +2,310 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TrolaSpy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>Trola · live</title>
+<link rel="icon" href="/logo">
+<link rel="apple-touch-icon" href="/logo">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #16191d; --muted: #66707a;
-    --line: #e3e6ea; --accent: #1f7a5a; --warn: #b5651d; --track: #1f6fd1;
+    --bg: #eef2f1; --card: rgba(255,255,255,.92); --solid: #ffffff; --text: #12201d;
+    --muted: #5d6b68; --faint: #94a3a0; --line: #dde5e3; --accent: #0f766e; --accent-soft: #ccebe6;
+    --charge: #b45309; --charge-soft: #fdecc8; --off: #e6ebea; --shadow: 0 8px 30px rgba(16,40,36,.12);
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #111417; --panel: #1a1e22; --text: #e8eaed; --muted: #9aa3ad;
-            --line: #2a3036; --accent: #3fbf8f; --warn: #e09a4f; --track: #5aa2ff; }
+    :root { --bg: #0b1211; --card: rgba(20,29,27,.92); --solid: #141d1b; --text: #e6efed;
+      --muted: #9fb0ac; --faint: #6b7d79; --line: #26332f; --accent: #2dd4bf; --accent-soft: #123a35;
+      --charge: #fbbf24; --charge-soft: #3a2c0c; --off: #22302c; --shadow: 0 8px 30px rgba(0,0,0,.45); }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .app { display: grid; grid-template-columns: 1fr 340px; height: 100%; }
-  #map { height: 100%; min-height: 300px; }
-  aside { background: var(--panel); border-left: 1px solid var(--line); padding: 16px; overflow-y: auto; }
-  h1 { font-size: 18px; margin: 0 0 2px; }
-  .updated { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
-  .updated.stale { color: var(--warn); }
-  .soc { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-  .soc b { font-size: 40px; font-variant-numeric: tabular-nums; }
-  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin-bottom: 14px; }
-  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
-  .state { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 13px;
-    background: var(--line); margin: 0 4px 12px 0; }
-  .state.on { background: var(--accent); color: #fff; }
-  dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0 0 16px; }
-  dt { color: var(--muted); }
-  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-  .range { display: flex; gap: 6px; margin-bottom: 10px; }
-  .range button { flex: 1; padding: 6px 0; border: 1px solid var(--line); border-radius: 6px;
-    background: transparent; color: var(--text); font: inherit; cursor: pointer; }
-  .range button.active { background: var(--track); border-color: var(--track); color: #fff; }
-  .chart-label { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
-  svg.chart { width: 100%; height: 70px; display: block; }
-  svg.chart path { fill: none; stroke: var(--accent); stroke-width: 2; }
-  .empty { color: var(--muted); }
-  @media (max-width: 720px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; }
-    #map { height: 55vh; }
-    aside { border-left: 0; border-top: 1px solid var(--line); }
+    font: 15px/1.4 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  #map { position: fixed; inset: 0; z-index: 0; background: var(--bg); }
+
+  .panel { position: absolute; z-index: 500; top: 16px; left: 16px; bottom: 16px; width: 380px;
+    display: flex; flex-direction: column; gap: 12px; overflow-y: auto; scrollbar-width: none;
+    padding-bottom: env(safe-area-inset-bottom); }
+  .panel::-webkit-scrollbar { display: none; }
+  .card { background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); padding: 16px; }
+
+  header.card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+  header img { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex: none; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: -.2px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .live { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
+    background: var(--off); padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .live.on i { background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: pulse 2s infinite; }
+  .live.on { color: var(--accent); background: var(--accent-soft); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+    100% { box-shadow: 0 0 0 9px transparent; } }
+
+  .hero { display: flex; align-items: center; gap: 16px; }
+  .ring { position: relative; width: 112px; height: 112px; flex: none; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 10; }
+  .ring .track { stroke: var(--off); }
+  .ring .val { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .6s ease, stroke .3s; }
+  .ring.charging .val { stroke: var(--charge); }
+  .ring .num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .ring b { font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  .ring small { color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+    font-size: 13px; background: var(--off); color: var(--muted); }
+  .chip svg { width: 14px; height: 14px; }
+  .chip.drive { background: var(--accent-soft); color: var(--accent); }
+  .chip.charge { background: var(--charge-soft); color: var(--charge); }
+  .updated { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { background: var(--solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+  .tile span { display: block; color: var(--muted); font-size: 12px; }
+  .tile b { font-size: 18px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+
+  .chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .chart-head h2 { font-size: 14px; margin: 0; }
+  .seg { display: flex; background: var(--off); border-radius: 10px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px;
+    padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+  .seg button.active { background: var(--solid); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .chart { position: relative; height: 120px; }
+  .chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .chart .grid { stroke: var(--line); stroke-width: 1; }
+  .chart .axis { fill: var(--faint); font-size: 10px; }
+  .chart .area { fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+  .chart .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .chart .cross { stroke: var(--faint); stroke-width: 1; }
+  .chart .dot { fill: var(--accent); stroke: var(--solid); stroke-width: 2; }
+  .tip { position: absolute; top: -6px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+    background: var(--solid); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 12px;
+    box-shadow: var(--shadow); display: none; }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
+
+  .foot { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); padding: 0 4px; }
+  .foot a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+  .fab { position: absolute; z-index: 500; right: 16px; bottom: 24px; width: 46px; height: 46px; border-radius: 50%;
+    border: 1px solid var(--line); background: var(--card); color: var(--text); box-shadow: var(--shadow);
+    display: grid; place-items: center; cursor: pointer; }
+  .fab svg { width: 20px; height: 20px; }
+
+  .van { width: 44px; height: 44px; border-radius: 50%; border: 3px solid #fff; overflow: hidden;
+    box-shadow: 0 0 0 3px var(--accent), 0 6px 16px rgba(0,0,0,.35); background: #fff; }
+  .van img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .van.stale { box-shadow: 0 0 0 3px var(--faint), 0 6px 16px rgba(0,0,0,.35); filter: grayscale(.6); }
+  .leaflet-control-attribution { font-size: 10px; background: var(--card) !important; color: var(--muted); }
+  .leaflet-control-attribution a { color: var(--muted); }
+  .leaflet-control-zoom { display: none; }
+
+  /* Phones: map on top, cards scroll underneath like a sheet. */
+  @media (max-width: 760px) {
+    #map { position: relative; height: 52dvh; inset: auto; }
+    .panel { position: static; width: auto; margin-top: -32px; padding: 0 12px calc(16px + env(safe-area-inset-bottom));
+      overflow: visible; }
+    .panel > * { position: relative; z-index: 500; }
+    .panel > header.card { position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 12px; right: 12px; }
+    .fab { top: calc(52dvh - 92px); bottom: auto; right: 14px; }
+    .ring { width: 100px; height: 100px; }
+    .leaflet-bottom { bottom: 32px; }
   }
 </style>
 </head>
 <body>
-<div class="app">
-  <div id="map"></div>
-  <aside>
-    <h1>Trola</h1>
-    <div class="updated" id="updated">Loading…</div>
-    <div class="soc"><b id="soc">–</b><span id="gids" class="empty"></span></div>
-    <div class="bar"><div id="socbar"></div></div>
-    <div id="states"></div>
-    <dl id="stats"></dl>
-    <div class="range" id="range">
-      <button data-h="24" class="active">24 h</button>
-      <button data-h="168">7 days</button>
-      <button data-h="720">30 days</button>
+<div id="map"></div>
+<button class="fab" id="recenter" aria-label="Center on Trola">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+</button>
+
+<div class="panel">
+  <header class="card">
+    <img src="/logo" alt="Trola">
+    <div><h1>Trola</h1><div class="sub">on the road</div></div>
+    <div class="live" id="live"><i></i><span>Offline</span></div>
+  </header>
+
+  <section class="card">
+    <div class="hero">
+      <div class="ring" id="ring">
+        <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="val" id="ringval" cx="60" cy="60" r="50" stroke-dasharray="314.16" stroke-dashoffset="314.16"/></svg>
+        <div class="num"><b id="soc">–</b><small id="gids"></small></div>
+      </div>
+      <div>
+        <div class="chips" id="chips"></div>
+        <div class="updated" id="updated">Loading…</div>
+      </div>
     </div>
-    <div class="chart-label">Battery % over this range</div>
-    <svg class="chart" id="chart" viewBox="0 0 300 70" preserveAspectRatio="none"><path id="chartpath"/></svg>
-  </aside>
+  </section>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <div class="chart-head">
+      <h2>Battery</h2>
+      <div class="seg" id="range">
+        <button data-h="24" class="active">24h</button>
+        <button data-h="168">7d</button>
+        <button data-h="720">30d</button>
+      </div>
+    </div>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <div class="foot"><span id="coords"></span><a id="gmaps" target="_blank" rel="noopener" hidden>Open in Maps ↗</a></div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 const $ = (id) => document.getElementById(id);
-const map = L.map('map', { zoomControl: true }).setView([46.05, 14.5], 8);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors',
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+const STALE_MS = 5 * 60 * 1000;
+// Keep the route clear of the side panel on wide screens.
+const fitOpts = () => (innerWidth > 760 ? { paddingTopLeft: [420, 40], paddingBottomRight: [40, 40] } : { padding: [40, 40] });
+
+const map = L.map('map', { zoomControl: false, attributionControl: true }).setView([46.05, 14.5], 8);
+L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png`, {
+  maxZoom: 19, subdomains: 'abcd',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
 }).addTo(map);
 
-const trackColor = getComputedStyle(document.documentElement).getPropertyValue('--track').trim();
-const trackLine = L.polyline([], { color: trackColor, weight: 4, opacity: 0.8 }).addTo(map);
-const marker = L.circleMarker([0, 0], { radius: 9, color: '#fff', weight: 3, fillColor: trackColor, fillOpacity: 1 });
-let hours = 24;
-let firstFit = true;
+const trackLine = L.polyline([], { color: css('--accent'), weight: 5, opacity: 0.85, lineCap: 'round' }).addTo(map);
+const vanIcon = (stale) => L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 22],
+  html: `<div class="van ${stale ? 'stale' : ''}"><img src="/logo" alt=""></div>` });
+const marker = L.marker([0, 0], { icon: vanIcon(false) });
+let hours = 24, firstFit = true, lastPos = null, trackPoints = [];
 
-const fmt = (v, digits = 0, unit = '') => (v === null || v === undefined ? '–' : `${Number(v).toFixed(digits)}${unit}`);
-const PLUG = { 0: 'Unplugged', 1: 'Plug partly in', 2: 'Plugged in' };
-const CHARGE = { 1: 'Charging (L1)', 2: 'Charging (L2)', 3: 'Quick charging' };
+const ICON = {
+  drive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  park: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 16V8h3a2.5 2.5 0 0 1 0 5h-3"/></svg>',
+  plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+};
+const CHARGE = { 1: 'Charging', 2: 'Charging', 3: 'Fast charging' };
+const n = (v, d = 0) => (v === null || v === undefined ? '–' : Number(v).toFixed(d));
 
 function ago(ts) {
-  const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return `${s} s ago`;
   if (s < 3600) return `${Math.round(s / 60)} min ago`;
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(ts).toLocaleString();
+  return new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function renderLatest({ reading: r, lastPosition }) {
   if (!r) { $('updated').textContent = 'No data yet. Waiting for LeafSpy.'; return; }
-  const stale = Date.now() - r.ts > 5 * 60 * 1000;
-  $('updated').textContent = `Updated ${ago(r.ts)}` + (stale ? ' (LeafSpy not sending)' : '');
-  $('updated').classList.toggle('stale', stale);
-  $('soc').textContent = fmt(r.soc, 1, '%');
+  const stale = Date.now() - r.ts > STALE_MS;
+  const charging = !!CHARGE[r.chrg_mode];
+  $('live').classList.toggle('on', !stale);
+  $('live').querySelector('span').textContent = stale ? 'Offline' : 'Live';
+  $('updated').textContent = `Updated ${ago(r.ts)}`;
+
+  const soc = Math.max(0, Math.min(100, r.soc || 0));
+  $('soc').textContent = r.soc === null ? '–' : `${Math.round(r.soc)}%`;
   $('gids').textContent = r.gids !== null ? `${r.gids} Gids` : '';
-  $('socbar').style.width = `${Math.max(0, Math.min(100, r.soc || 0))}%`;
+  $('ringval').style.strokeDashoffset = 314.16 * (1 - soc / 100);
+  $('ring').classList.toggle('charging', charging);
 
-  const states = [];
-  states.push(`<span class="state ${r.pwr_sw === 1 ? 'on' : ''}">${r.pwr_sw === 1 ? 'Car on' : 'Car off'}</span>`);
-  if (r.plug_state !== null) states.push(`<span class="state">${PLUG[r.plug_state] || 'Plug ?'}</span>`);
-  if (CHARGE[r.chrg_mode]) states.push(`<span class="state on">${CHARGE[r.chrg_mode]}</span>`);
-  $('states').innerHTML = states.join('');
+  const chips = [];
+  if (charging) chips.push(`<span class="chip charge">${ICON.bolt}${CHARGE[r.chrg_mode]}${r.chrg_pwr ? ` · ${n(r.chrg_pwr / 1000, 1)} kW` : ''}</span>`);
+  else if (r.pwr_sw === 1 && !stale) chips.push(`<span class="chip drive">${ICON.drive}${r.speed > 1 ? `Driving · ${n(r.speed)} km/h` : 'Ready'}</span>`);
+  else chips.push(`<span class="chip">${ICON.park}Parked</span>`);
+  if (r.plug_state === 2 && !charging) chips.push(`<span class="chip">${ICON.plug}Plugged in</span>`);
+  $('chips').innerHTML = chips.join('');
 
-  const rows = [
-    ['Speed', fmt(r.speed, 0, ' km/h')],
-    ['Charge power', r.chrg_pwr ? fmt(r.chrg_pwr / 1000, 1, ' kW') : '–'],
-    ['Battery health', fmt(r.soh, 1, '%')],
-    ['Battery temp', fmt(r.bat_temp, 1, ' °C')],
-    ['Outside temp', fmt(r.amb_temp, 1, ' °C')],
-    ['Battery', `${fmt(r.bat_volts, 0, ' V')} · ${fmt(r.bat_amps, 1, ' A')}`],
-    ['Odometer', fmt(r.odo, 0, ' km')],
-    ['Elevation', fmt(r.elv, 0, ' m')],
-    ['Tablet battery', fmt(r.dev_bat, 0, '%')],
+  const tiles = [
+    ['Battery health', n(r.soh, 1), '%'],
+    ['Battery temp', n(r.bat_temp, 1), '°C'],
+    ['Outside', n(r.amb_temp, 1), '°C'],
+    ['Odometer', r.odo === null ? '–' : Number(r.odo).toLocaleString(), 'km'],
+    ['Pack', `${n(r.bat_volts)}`, `V · ${n(r.bat_amps, 1)} A`],
+    ['Elevation', n(r.elv), 'm'],
   ];
-  $('stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  $('tiles').innerHTML = tiles.map(([k, v, u]) => `<div class="tile"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
 
   const pos = r.lat !== null ? r : lastPosition;
   if (pos && pos.lat !== null) {
-    marker.setLatLng([pos.lat, pos.lon]).addTo(map)
-      .bindTooltip(r.lat !== null ? 'Trola now' : `Last GPS fix ${ago(pos.ts)}`);
-    if (firstFit) { map.setView([pos.lat, pos.lon], 14); firstFit = false; }
+    lastPos = [pos.lat, pos.lon];
+    marker.setLatLng(lastPos).setIcon(vanIcon(stale)).addTo(map);
+    $('coords').textContent = `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`;
+    $('gmaps').href = `https://www.google.com/maps?q=${pos.lat},${pos.lon}`;
+    $('gmaps').hidden = false;
+    if (firstFit) { map.setView(lastPos, 14); firstFit = false; }
   }
+}
+
+function renderChart(points) {
+  const el = $('chart');
+  const pts = points.filter((p) => p.soc !== null);
+  trackPoints = pts;
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">No battery data in this range yet.</div>'; return; }
+  const W = el.clientWidth, H = el.clientHeight, L0 = 28, B = 16, T = 6;
+  const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
+  const x = (t) => L0 + ((t - t0) / Math.max(1, t1 - t0)) * (W - L0 - 4);
+  const y = (s) => T + (1 - s / 100) * (H - T - B);
+  // Break the line across gaps longer than 15 min (van off).
+  let d = '', area = '', seg = [];
+  const flush = () => {
+    if (!seg.length) return;
+    d += seg.map((p, i) => `${i ? 'L' : 'M'}${x(p.ts).toFixed(1)},${y(p.soc).toFixed(1)}`).join('');
+    area += `M${x(seg[0].ts).toFixed(1)},${y(0)}` + seg.map((p) => `L${x(p.ts).toFixed(1)},${y(p.soc).toFixed(1)}`).join('') + `L${x(seg[seg.length - 1].ts).toFixed(1)},${y(0)}Z`;
+    seg = [];
+  };
+  pts.forEach((p, i) => { if (i && p.ts - pts[i - 1].ts > 15 * 60 * 1000) flush(); seg.push(p); });
+  flush();
+  const fmtT = (t) => new Date(t).toLocaleString([], hours > 24 ? { day: 'numeric', month: 'short' } : { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    ${[0, 50, 100].map((s) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(s)}" y2="${y(s)}"/><text class="axis" x="0" y="${y(s) + 3}">${s}%</text>`).join('')}
+    <path class="area" d="${area}"/><path class="line" d="${d}"/>
+    <text class="axis" x="${L0}" y="${H - 2}">${fmtT(t0)}</text>
+    <text class="axis" x="${W}" y="${H - 2}" text-anchor="end">${fmtT(t1)}</text>
+    <line class="cross" id="cross" y1="${T}" y2="${H - B}" visibility="hidden"/>
+    <circle class="dot" id="cdot" r="4" visibility="hidden"/>
+    <rect id="hit" x="${L0}" y="0" width="${W - L0}" height="${H}" fill="transparent"/>
+  </svg><div class="tip" id="tip"></div>`;
+
+  const hit = $('hit'), tip = $('tip'), cross = $('cross'), dot = $('cdot');
+  const show = (clientX) => {
+    const rect = el.getBoundingClientRect();
+    const t = t0 + ((clientX - rect.left - L0) / (W - L0 - 4)) * (t1 - t0);
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(p.ts - t) < Math.abs(best.ts - t)) best = p;
+    const px = x(best.ts);
+    cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
+    dot.setAttribute('cx', px); dot.setAttribute('cy', y(best.soc)); dot.setAttribute('visibility', 'visible');
+    tip.style.display = 'block';
+    tip.style.left = `${Math.min(Math.max(px, 50), W - 50)}px`;
+    tip.textContent = `${Math.round(best.soc)}% · ${new Date(best.ts).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+  };
+  const hide = () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
+  hit.addEventListener('pointermove', (e) => show(e.clientX));
+  hit.addEventListener('pointerdown', (e) => show(e.clientX));
+  hit.addEventListener('pointerleave', hide);
 }
 
 function renderTrack({ points }) {
   trackLine.setLatLngs(points.filter((p) => p.lat !== null).map((p) => [p.lat, p.lon]));
   if (firstFit && trackLine.getLatLngs().length > 1) {
-    map.fitBounds(trackLine.getBounds(), { padding: [30, 30], maxZoom: 15 });
+    map.fitBounds(trackLine.getBounds(), { ...fitOpts(), maxZoom: 15 });
     firstFit = false;
   }
-  const soc = points.filter((p) => p.soc !== null);
-  if (soc.length < 2) { $('chartpath').setAttribute('d', ''); return; }
-  const t0 = soc[0].ts, t1 = soc[soc.length - 1].ts;
-  const d = soc.map((p, i) => {
-    const x = ((p.ts - t0) / Math.max(1, t1 - t0)) * 300;
-    const y = 66 - (p.soc / 100) * 62;
-    return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join('');
-  $('chartpath').setAttribute('d', d);
+  renderChart(points);
 }
 
-async function refresh(withTrack = true) {
+async function refresh() {
   try {
     const [latest, track] = await Promise.all([
       fetch('/api/latest').then((r) => r.json()),
-      withTrack ? fetch(`/api/track?hours=${hours}`).then((r) => r.json()) : null,
+      fetch(`/api/track?hours=${hours}`).then((r) => r.json()),
     ]);
-    if (track) renderTrack(track);
+    renderTrack(track);
     renderLatest(latest);
   } catch (e) {
     $('updated').textContent = 'Could not load data. Retrying…';
@@ -167,11 +317,13 @@ $('range').addEventListener('click', (e) => {
   if (!h) return;
   hours = Number(h);
   document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('active', b === e.target));
-  refresh(true).then(() => { if (trackLine.getLatLngs().length) map.fitBounds(trackLine.getBounds(), { padding: [30, 30] }); });
+  refresh().then(() => { if (trackLine.getLatLngs().length > 1) map.fitBounds(trackLine.getBounds(), fitOpts()); });
 });
+$('recenter').addEventListener('click', () => { if (lastPos) map.flyTo(lastPos, 15); });
+addEventListener('resize', () => renderChart(trackPoints.length ? trackPoints : []));
 
-refresh(true);
-setInterval(() => refresh(true), 15000);
+refresh();
+setInterval(refresh, 15000);
 </script>
 </body>
 </html>

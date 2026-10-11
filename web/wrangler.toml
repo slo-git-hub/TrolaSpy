@@ -13,3 +13,13 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 # Fill both from Zero Trust > Access > Applications > (this app) to enable it.
 ACCESS_TEAM_DOMAIN = ""
 ACCESS_AUD = ""
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html", "**/*.svg"]
+fallthrough = true
+
+[[rules]]
+type = "Data"
+globs = ["**/*.png", "**/*.jpg"]
+fallthrough = true
