@@ -1,5 +1,6 @@
 import page from './page.html';
 import logo from './logo.svg';
+import banner from './banner.jpg';
 import { isAuthorized } from './access.js';
 
 const MAX_HOURS = 30 * 24;
@@ -47,6 +48,9 @@ export default {
     }
     if (url.pathname === '/logo') {
       return new Response(logo, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'private, max-age=3600' } });
+    }
+    if (url.pathname === '/banner.jpg') {
+      return new Response(banner, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=86400' } });
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
