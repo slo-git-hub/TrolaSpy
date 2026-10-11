@@ -16,13 +16,15 @@
     --accent: #04a4d8; --accent-ink: #0a6f96; --accent-soft: #d5eef8;
     --batt: #6f9e2f; --charge: #c27c0e; --charge-soft: #fbedc9; --off: #e3ecee;
     --shadow: 0 8px 30px rgba(23,80,100,.14);
+    --s-bat: #c27c0e; --s-amb: #0a8fc4;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #0b1a20; --card: rgba(17,36,44,.93); --solid: #132932; --text: #e3f0f3;
       --muted: #9db6bf; --faint: #66808a; --line: #23404b; --navy: #cfe7ee;
       --accent: #2fc0f0; --accent-ink: #5fd0f5; --accent-soft: #10394a;
       --batt: #a4ce50; --charge: #f5c04a; --charge-soft: #3b2e0e; --off: #1b3540;
-      --shadow: 0 8px 30px rgba(0,0,0,.45); }
+      --shadow: 0 8px 30px rgba(0,0,0,.45);
+      --s-bat: #c2841c; --s-amb: #1a9ccc; }
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -85,14 +87,26 @@
   .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px;
     padding: 4px 10px; border-radius: 8px; cursor: pointer; }
   .seg button.active { background: var(--solid); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-  .chart { position: relative; height: 120px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
+  .stat span { display: block; color: var(--muted); font-size: 11px; }
+  .stat b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat b small { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .regen { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .regen .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--off); margin: 4px 0; gap: 2px; }
+  .regen .bar i { display: block; height: 100%; }
+  .regen .used { background: var(--s-bat); }
+  .regen .back { background: var(--batt); }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); min-height: 16px; margin-bottom: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .chart .zero { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 3; }
+  .chart { position: relative; height: 130px; }
   .chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
   .chart .grid { stroke: var(--line); stroke-width: 1; }
   .chart .axis { fill: var(--faint); font-size: 10px; }
-  .chart .area { fill: color-mix(in srgb, var(--batt) 20%, transparent); }
-  .chart .line { fill: none; stroke: var(--batt); stroke-width: 2; stroke-linejoin: round; }
+  .chart .area { opacity: .18; }
+  .chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; }
   .chart .cross { stroke: var(--faint); stroke-width: 1; }
-  .chart .dot { fill: var(--batt); stroke: var(--solid); stroke-width: 2; }
+  .chart .dot { stroke: var(--solid); stroke-width: 2; }
   .tip { position: absolute; top: -6px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
     background: var(--solid); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 12px;
     box-shadow: var(--shadow); display: none; }
@@ -129,6 +143,7 @@
     .panel > header.card { position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 12px; right: 12px; }
     .fab { top: calc(52dvh - 92px); bottom: auto; right: 14px; }
     .ring { width: 100px; height: 100px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
     .leaflet-bottom { bottom: 32px; }
   }
 </style>
@@ -167,13 +182,27 @@
 
   <section class="card">
     <div class="chart-head">
-      <h2>Battery</h2>
+      <h2 id="rangeTitle">Last 24 hours</h2>
       <div class="seg" id="range">
         <button data-h="24" class="active">24h</button>
         <button data-h="168">7d</button>
         <button data-h="720">30d</button>
       </div>
     </div>
+    <div class="stats" id="stats"></div>
+    <div class="regen" id="regenbar"></div>
+  </section>
+
+  <section class="card">
+    <div class="chart-head">
+      <div class="seg" id="metric">
+        <button data-m="soc" class="active">Battery</button>
+        <button data-m="speed">Speed</button>
+        <button data-m="kw">Power</button>
+        <button data-m="temp">Temp</button>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
     <div class="chart" id="chart"></div>
   </section>
 
@@ -236,13 +265,18 @@ function renderLatest({ reading: r, lastPosition }) {
   $('ring').classList.toggle('charging', charging);
 
   const chips = [];
-  if (charging) chips.push(`<span class="chip charge">${ICON.bolt}${CHARGE[r.chrg_mode]}${r.chrg_pwr ? ` · ${n(r.chrg_pwr / 1000, 1)} kW` : ''}</span>`);
+  if (charging && stale) chips.push(`<span class="chip">${ICON.bolt}Was charging</span>`);
+  else if (charging) chips.push(`<span class="chip charge">${ICON.bolt}${CHARGE[r.chrg_mode]}${r.chrg_pwr ? ` · ${n(r.chrg_pwr / 1000, 1)} kW` : ''}</span>`);
   else if (r.pwr_sw === 1 && !stale) chips.push(`<span class="chip drive">${ICON.drive}${r.speed > 1 ? `Driving · ${n(r.speed)} km/h` : 'Ready'}</span>`);
   else chips.push(`<span class="chip">${ICON.park}Parked</span>`);
   if (r.plug_state === 2 && !charging) chips.push(`<span class="chip">${ICON.plug}Plugged in</span>`);
   $('chips').innerHTML = chips.join('');
 
+  const kw = r.bat_volts !== null && r.bat_amps !== null ? (r.bat_volts * r.bat_amps) / 1000 : null;
+  const powerLabel = kw === null ? 'Power' : charging ? 'Charging in' : kw < -0.2 ? 'Regen' : 'Power';
   const tiles = [
+    ['Speed', n(r.speed), 'km/h'],
+    [powerLabel, kw === null ? '–' : n(Math.abs(kw), 1), 'kW'],
     ['Battery health', n(r.soh, 1), '%'],
     ['Battery temp', n(r.bat_temp, 1), '°C'],
     ['Outside', n(r.amb_temp, 1), '°C'],
@@ -263,37 +297,66 @@ function renderLatest({ reading: r, lastPosition }) {
   }
 }
 
+const METRICS = {
+  soc: { label: 'Battery', unit: '%', series: [{ key: 'soc', color: '--batt' }], domain: () => [0, 100], ticks: [0, 50, 100], area: true },
+  speed: { label: 'Speed', unit: ' km/h', series: [{ key: 'speed', color: '--accent' }], domain: (lo, hi) => [0, Math.max(60, Math.ceil(hi / 20) * 20)] },
+  kw: { label: 'Power', unit: ' kW', series: [{ key: 'kw', color: '--accent' }], zero: true,
+    domain: (lo, hi) => [Math.min(-10, Math.floor(lo / 10) * 10), Math.max(10, Math.ceil(hi / 10) * 10)],
+    note: 'Above 0: drawing power · below 0: regen or charging' },
+  temp: { label: 'Temp', unit: '°C', series: [{ key: 'bat_temp', color: '--s-bat', name: 'Battery' }, { key: 'amb_temp', color: '--s-amb', name: 'Outside' }],
+    domain: (lo, hi) => [Math.floor(Math.min(0, lo) / 10) * 10, Math.max(30, Math.ceil(hi / 10) * 10)] },
+};
+let metric = 'soc';
+
 function renderChart(points) {
-  const el = $('chart');
-  const pts = points.filter((p) => p.soc !== null);
-  trackPoints = pts;
-  if (pts.length < 2) { el.innerHTML = '<div class="empty">No battery data in this range yet.</div>'; return; }
-  const W = el.clientWidth, H = el.clientHeight, L0 = 28, B = 16, T = 6;
+  trackPoints = points;
+  const el = $('chart'), m = METRICS[metric];
+  const pts = points.filter((p) => m.series.some((s) => p[s.key] !== null && p[s.key] !== undefined));
+  $('legend').innerHTML = m.series.length > 1
+    ? m.series.map((s) => `<span><i style="background:var(${s.color})"></i>${s.name}</span>`).join('')
+    : (m.note ? `<span>${m.note}</span>` : '');
+  if (pts.length < 2) { el.innerHTML = `<div class="empty">No ${m.label.toLowerCase()} data in this range yet.</div>`; return; }
+
+  const vals = pts.flatMap((p) => m.series.map((s) => p[s.key]).filter((v) => v !== null && v !== undefined));
+  const [lo, hi] = m.domain(Math.min(...vals), Math.max(...vals));
+  const ticks = m.ticks || [lo, m.zero ? 0 : Math.round((lo + hi) / 2), hi];
+  const W = el.clientWidth, H = el.clientHeight, L0 = 34, B = 16, T = 6;
   const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
   const x = (t) => L0 + ((t - t0) / Math.max(1, t1 - t0)) * (W - L0 - 4);
-  const y = (s) => T + (1 - s / 100) * (H - T - B);
-  // Break the line across gaps longer than 15 min (van off).
-  let d = '', area = '', seg = [];
-  const flush = () => {
-    if (!seg.length) return;
-    d += seg.map((p, i) => `${i ? 'L' : 'M'}${x(p.ts).toFixed(1)},${y(p.soc).toFixed(1)}`).join('');
-    area += `M${x(seg[0].ts).toFixed(1)},${y(0)}` + seg.map((p) => `L${x(p.ts).toFixed(1)},${y(p.soc).toFixed(1)}`).join('') + `L${x(seg[seg.length - 1].ts).toFixed(1)},${y(0)}Z`;
-    seg = [];
-  };
-  pts.forEach((p, i) => { if (i && p.ts - pts[i - 1].ts > 15 * 60 * 1000) flush(); seg.push(p); });
-  flush();
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const base = y(Math.max(lo, 0));
+
+  // One path per series, broken across gaps over 15 min (van off).
+  const paths = m.series.map((s) => {
+    let d = '', area = '', seg = [];
+    const flush = () => {
+      if (!seg.length) return;
+      const line = seg.map((p, i) => `${i ? 'L' : 'M'}${x(p.ts).toFixed(1)},${y(p[s.key]).toFixed(1)}`).join('');
+      d += line;
+      area += `M${x(seg[0].ts).toFixed(1)},${base}` + line.replace(/M/g, 'L') + `L${x(seg[seg.length - 1].ts).toFixed(1)},${base}Z`;
+      seg = [];
+    };
+    pts.forEach((p, i) => {
+      if (p[s.key] === null || p[s.key] === undefined) { flush(); return; }
+      if (i && p.ts - pts[i - 1].ts > 15 * 60 * 1000) flush();
+      seg.push(p);
+    });
+    flush();
+    return `${m.area ? `<path class="area" fill="var(${s.color})" d="${area}"/>` : ''}<path class="line" stroke="var(${s.color})" d="${d}"/>`;
+  }).join('');
+
   const fmtT = (t) => new Date(t).toLocaleString([], hours > 24 ? { day: 'numeric', month: 'short' } : { hour: '2-digit', minute: '2-digit' });
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
-    ${[0, 50, 100].map((s) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(s)}" y2="${y(s)}"/><text class="axis" x="0" y="${y(s) + 3}">${s}%</text>`).join('')}
-    <path class="area" d="${area}"/><path class="line" d="${d}"/>
+    ${ticks.map((v) => `<line class="${m.zero && v === 0 ? 'zero' : 'grid'}" x1="${L0}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="0" y="${y(v) + 3}">${v}${m.unit.trim() === '%' ? '%' : ''}</text>`).join('')}
+    ${paths}
     <text class="axis" x="${L0}" y="${H - 2}">${fmtT(t0)}</text>
     <text class="axis" x="${W}" y="${H - 2}" text-anchor="end">${fmtT(t1)}</text>
     <line class="cross" id="cross" y1="${T}" y2="${H - B}" visibility="hidden"/>
-    <circle class="dot" id="cdot" r="4" visibility="hidden"/>
+    ${m.series.map((s, i) => `<circle class="dot" id="cdot${i}" r="4" fill="var(${s.color})" visibility="hidden"/>`).join('')}
     <rect id="hit" x="${L0}" y="0" width="${W - L0}" height="${H}" fill="transparent"/>
   </svg><div class="tip" id="tip"></div>`;
 
-  const hit = $('hit'), tip = $('tip'), cross = $('cross'), dot = $('cdot');
+  const hit = $('hit'), tip = $('tip'), cross = $('cross');
   const show = (clientX) => {
     const rect = el.getBoundingClientRect();
     const t = t0 + ((clientX - rect.left - L0) / (W - L0 - 4)) * (t1 - t0);
@@ -301,15 +364,47 @@ function renderChart(points) {
     for (const p of pts) if (Math.abs(p.ts - t) < Math.abs(best.ts - t)) best = p;
     const px = x(best.ts);
     cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
-    dot.setAttribute('cx', px); dot.setAttribute('cy', y(best.soc)); dot.setAttribute('visibility', 'visible');
+    const parts = [];
+    m.series.forEach((s, i) => {
+      const dot = $(`cdot${i}`), v = best[s.key];
+      if (v === null || v === undefined) { dot.setAttribute('visibility', 'hidden'); return; }
+      dot.setAttribute('cx', px); dot.setAttribute('cy', y(v)); dot.setAttribute('visibility', 'visible');
+      parts.push(`${s.name ? `${s.name} ` : ''}${Number(v).toFixed(metric === 'soc' || metric === 'speed' ? 0 : 1)}${m.unit}`);
+    });
     tip.style.display = 'block';
-    tip.style.left = `${Math.min(Math.max(px, 50), W - 50)}px`;
-    tip.textContent = `${Math.round(best.soc)}% · ${new Date(best.ts).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+    tip.textContent = `${parts.join(' · ')} · ${new Date(best.ts).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`;
+    const half = tip.offsetWidth / 2;
+    tip.style.left = `${Math.min(Math.max(px, half), W - half)}px`;
   };
-  const hide = () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
+  const hide = () => {
+    tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden');
+    m.series.forEach((s, i) => $(`cdot${i}`).setAttribute('visibility', 'hidden'));
+  };
   hit.addEventListener('pointermove', (e) => show(e.clientX));
   hit.addEventListener('pointerdown', (e) => show(e.clientX));
   hit.addEventListener('pointerleave', hide);
+}
+
+function renderStats(st) {
+  $('rangeTitle').textContent = { 24: 'Last 24 hours', 168: 'Last 7 days', 720: 'Last 30 days' }[hours];
+  const used = st.used_kwh || 0, regen = st.regen_kwh || 0, km = st.distance_km || 0;
+  const net = used - regen, driveH = (st.drive_s || 0) / 3600;
+  const dur = driveH >= 1 ? `${Math.floor(driveH)}h ${Math.round((driveH % 1) * 60)}` : `${Math.round(driveH * 60)}`;
+  const items = [
+    ['Distance', km ? km.toLocaleString() : '0', 'km'],
+    ['Driving', dur, 'min'],
+    ['Avg speed', driveH > 0.02 && km ? n(km / driveH) : '–', 'km/h'],
+    ['Top speed', n(st.max_speed), 'km/h'],
+    ['Energy used', n(used, 1), 'kWh'],
+    ['Regen', n(regen, 1), 'kWh'],
+    ['Consumption', km >= 1 ? n((net / km) * 100, 1) : '–', 'kWh/100km'],
+    ['Charged', n(st.charged_kwh || 0, 1), 'kWh'],
+  ];
+  $('stats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
+  $('regenbar').innerHTML = used > 0.05
+    ? `<div class="bar"><i class="used" style="flex:${Math.max(net, 0)}"></i><i class="back" style="flex:${regen}"></i></div>
+       Regen gave back <b>${Math.round((regen / used) * 100)}%</b> of the energy used${st.max_regen_kw ? ` · strongest regen ${n(st.max_regen_kw)} kW` : ''}`
+    : '';
 }
 
 function renderTrack({ points }) {
@@ -323,11 +418,13 @@ function renderTrack({ points }) {
 
 async function refresh() {
   try {
-    const [latest, track] = await Promise.all([
+    const [latest, track, st] = await Promise.all([
       fetch('/api/latest').then((r) => r.json()),
       fetch(`/api/track?hours=${hours}`).then((r) => r.json()),
+      fetch(`/api/stats?hours=${hours}`).then((r) => r.json()),
     ]);
     renderTrack(track);
+    renderStats(st);
     renderLatest(latest);
   } catch (e) {
     $('updated').textContent = 'Could not load data. Retrying…';
@@ -341,8 +438,15 @@ $('range').addEventListener('click', (e) => {
   document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('active', b === e.target));
   refresh().then(() => { if (trackLine.getLatLngs().length > 1) map.fitBounds(trackLine.getBounds(), fitOpts()); });
 });
+$('metric').addEventListener('click', (e) => {
+  const m = e.target.dataset && e.target.dataset.m;
+  if (!m) return;
+  metric = m;
+  document.querySelectorAll('#metric button').forEach((b) => b.classList.toggle('active', b === e.target));
+  renderChart(trackPoints);
+});
 $('recenter').addEventListener('click', () => { if (lastPos) map.flyTo(lastPos, 15); });
-addEventListener('resize', () => renderChart(trackPoints.length ? trackPoints : []));
+addEventListener('resize', () => renderChart(trackPoints));
 
 refresh();
 setInterval(refresh, 15000);
