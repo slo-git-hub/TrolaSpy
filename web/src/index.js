@@ -1,7 +1,8 @@
 import page from './page.html';
 import logo from './logo.svg';
 import banner from './banner.jpg';
-import { isAuthorized } from './access.js';
+import { getViewer, isAdmin } from './access.js';
+import { listPhotos, servePhoto, positionAt, uploadPhoto, deletePhoto } from './photos.js';
 
 const MAX_HOURS = 30 * 24;
 const MAX_POINTS = 3000;
@@ -67,11 +68,32 @@ async function stats(env, hours) {
 
 export default {
   async fetch(request, env, ctx) {
-    if (!env.DEV_NO_AUTH && !(await isAuthorized(request, env, ctx))) {
+    const viewer = await getViewer(request, env, ctx);
+    if (!viewer) {
       return new Response('Forbidden: open this page through Cloudflare Access.', { status: 403 });
     }
+    const admin = isAdmin(viewer, env);
 
     const url = new URL(request.url);
+    const method = request.method;
+    if (url.pathname === '/api/me') return json({ email: viewer.email, admin, photos: !!env.PHOTOS });
+    if (url.pathname === '/api/photos' && method === 'GET') return listPhotos(env);
+    if (url.pathname.startsWith('/photos/') && method === 'GET') {
+      const key = url.pathname.slice('/photos/'.length);
+      if (!/^[0-9a-f-]{36}(_t)?\.jpg$/.test(key)) return new Response('Not found', { status: 404 });
+      return servePhoto(env, key);
+    }
+    if (url.pathname.startsWith('/api/photos') || url.pathname === '/api/position') {
+      if (!admin) return json({ error: 'Only the admin can do that.' }, 403);
+      // Same-origin check: uploads and deletes only from this page.
+      const origin = request.headers.get('Origin');
+      if (method !== 'GET' && origin && origin !== url.origin) return json({ error: 'Bad origin.' }, 403);
+      if (url.pathname === '/api/position') return positionAt(env, Number(url.searchParams.get('ts')) || Date.now());
+      if (url.pathname === '/api/photos' && method === 'POST') return uploadPhoto(request, env, viewer);
+      const m = url.pathname.match(/^\/api\/photos\/([0-9a-f-]{36})$/);
+      if (m && method === 'DELETE') return deletePhoto(env, m[1]);
+      return json({ error: 'Not found' }, 404);
+    }
     if (url.pathname === '/api/latest') return json(await latest(env));
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));

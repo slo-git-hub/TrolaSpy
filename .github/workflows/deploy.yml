@@ -24,6 +24,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       LEAFSPY_USER: ${{ secrets.LEAFSPY_USER }}
       LEAFSPY_PASS: ${{ secrets.LEAFSPY_PASS }}
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
     steps:
       - name: Check secrets
         id: check
@@ -60,6 +61,15 @@ jobs:
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$id/" ingest/wrangler.toml web/wrangler.toml
           npx wrangler d1 execute trolaspy --remote --file schema.sql -c ingest/wrangler.toml
 
+      - name: Create the photo bucket (R2)
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          if npx wrangler r2 bucket list | grep -q 'trolaspy-photos'; then
+            echo "Bucket exists"
+          else
+            npx wrangler r2 bucket create trolaspy-photos
+          fi
+
       - name: Deploy Workers
         if: steps.check.outputs.ready == 'true'
         run: npm run deploy
@@ -69,3 +79,7 @@ jobs:
         run: |
           printf '%s' "$LEAFSPY_USER" | npx wrangler secret put LEAFSPY_USER -c ingest/wrangler.toml
           printf '%s' "$LEAFSPY_PASS" | npx wrangler secret put LEAFSPY_PASS -c ingest/wrangler.toml
+
+      - name: Set photo admin
+        if: steps.check.outputs.ready == 'true' && env.ADMIN_EMAIL != ''
+        run: printf '%s' "$ADMIN_EMAIL" | npx wrangler secret put ADMIN_EMAILS -c web/wrangler.toml

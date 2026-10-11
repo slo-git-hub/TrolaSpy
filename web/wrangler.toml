@@ -23,3 +23,8 @@ fallthrough = true
 type = "Data"
 globs = ["**/*.png", "**/*.jpg"]
 fallthrough = true
+
+# Photo pins. Requires R2 to be enabled on the account.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "trolaspy-photos"

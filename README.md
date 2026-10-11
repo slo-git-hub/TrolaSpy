@@ -15,7 +15,10 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   30 days once a day.
 - **`web/`** – the map page (Leaflet + OpenStreetMap) and its small JSON API
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
-- **`schema.sql`** – the D1 table.
+- **`schema.sql`** – the D1 tables (readings, photos).
+- **Photo pins** – the admin uploads photos from the map page; the browser reads EXIF GPS
+  (or matches the photo time to Trola's track, or lets you tap the map), shrinks the photo
+  to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).
 
 Free-tier fit: one upload every 10 s is about 8,600 Worker requests and D1 row
 writes a day (limits: 100,000 each).
@@ -75,6 +78,10 @@ secrets exist (Settings → Secrets and variables → Actions):
 | `CLOUDFLARE_ACCOUNT_ID` | Your account ID (Workers & Pages overview, right-hand side) |
 | `LEAFSPY_USER` | The ID you'll type into LeafSpy |
 | `LEAFSPY_PASS` | The password you'll type into LeafSpy |
+| `ADMIN_EMAIL` | Email that may add/delete photo pins (comma-separate several) |
+
+Photo pins need R2 enabled on the account and the token to also have
+Account → Workers R2 Storage: Edit; the workflow creates the `trolaspy-photos` bucket.
 
 Then run Actions → Deploy → Run workflow. Steps 5–7 above (Access, LeafSpy,
 test drive) are still done by hand.

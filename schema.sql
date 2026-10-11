@@ -24,3 +24,17 @@ CREATE TABLE IF NOT EXISTS readings (
   dev_bat    INTEGER,  -- tablet battery %
   rpm        INTEGER
 );
+
+-- Photos pinned on the map. Images live in R2 under photos/<id>.jpg and photos/<id>_t.jpg.
+CREATE TABLE IF NOT EXISTS photos (
+  id         TEXT PRIMARY KEY,
+  taken_ts   INTEGER,  -- ms since epoch, from EXIF when available
+  lat        REAL NOT NULL,
+  lon        REAL NOT NULL,
+  source     TEXT,     -- exif | track | manual
+  caption    TEXT,
+  width      INTEGER,
+  height     INTEGER,
+  created_ts INTEGER NOT NULL,
+  created_by TEXT
+);
