@@ -586,12 +586,14 @@ async function shrink(file, max, quality) {
 
 // Where was it taken? 1) photo GPS, 2) Trola's position at the photo's time, 3) ask to tap the map.
 async function locate(file) {
-  let gps = null, taken = null;
+  let gps = null, taken = null, hidden = false;
   try {
     // One plain parse: the lite build gives named tags plus latitude/longitude.
     const t = await window.exifr.parse(file);
     if (t) {
       if (Number.isFinite(t.latitude) && Number.isFinite(t.longitude)) gps = t;
+      // Android zeroes the GPS tags when a browser opens a photo without media-location permission.
+      hidden = ('GPSLatitude' in t || 'latitude' in t) && !t.latitude && !t.longitude;
       const d = t.DateTimeOriginal || t.CreateDate;
       if (d instanceof Date && !isNaN(d)) taken = d.getTime();
     }
@@ -602,10 +604,12 @@ async function locate(file) {
   if (taken) {
     try {
       const p = await fetch(`/api/position?ts=${taken}`).then((r) => r.json());
-      if (p.found) return { lat: p.lat, lon: p.lon, source: 'track', taken, note: `No GPS in photo · placed where Trola was at ${fmtDate(taken)}` };
+      if (p.found) return { lat: p.lat, lon: p.lon, source: 'track', taken, note: `${hidden ? 'Your phone hid the photo\'s GPS' : 'No GPS in photo'} · placed where Trola was at ${fmtDate(taken)}` };
     } catch { /* fall through */ }
   }
-  return { lat: null, lon: null, source: 'manual', taken, note: 'No location in photo · tap the map where it was taken' };
+  return { lat: null, lon: null, source: 'manual', taken, note: hidden
+    ? 'Your phone hid the photo\'s GPS from the browser · tap the map where it was taken'
+    : 'No location in photo · tap the map where it was taken' };
 }
 
 const up = { queue: [], i: 0, cur: null, marker: null, busy: false };
