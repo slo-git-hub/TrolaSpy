@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#175064">
 <title>TROLA · live</title>
 <link rel="icon" href="/logo">
-<link rel="apple-touch-icon" href="/logo">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script>
@@ -693,10 +694,31 @@ $('upsave').addEventListener('click', async () => {
   }
 });
 
+// Photos shared from another app (Share → TrolaSpy) wait in the service worker's cache.
+async function takeShared() {
+  const n = Number(new URLSearchParams(location.search).get('shared'));
+  if (!new URLSearchParams(location.search).has('shared')) return;
+  history.replaceState(null, '', '/');
+  if (!('caches' in window)) return;
+  const cache = await caches.open('trolaspy-share');
+  const files = [];
+  for (let i = 0; i < n; i++) {
+    const r = await cache.match('/shared/' + i);
+    if (!r) continue;
+    files.push(new File([await r.blob()], decodeURIComponent(r.headers.get('x-name') || 'photo.jpg'),
+      { type: r.headers.get('content-type') || 'image/jpeg', lastModified: Number(r.headers.get('x-modified')) || Date.now() }));
+  }
+  await caches.delete('trolaspy-share');
+  if (!files.length) return;
+  if (!(me.admin && me.photos)) { alert('Only the admin can add photos.'); return; }
+  up.queue = files; up.i = 0; nextUpload();
+}
+
 fetch('/api/me').then((r) => r.json()).then((m) => {
   me = m;
   $('addphoto').hidden = !(m.admin && m.photos);
-}).catch(() => {});
+}).catch(() => {}).then(takeShared);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 loadPhotos();
 
 refresh();

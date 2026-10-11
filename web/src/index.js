@@ -1,6 +1,10 @@
 import page from './page.html';
 import logo from './logo.svg';
 import banner from './banner.jpg';
+import icon192 from './icon-192.png';
+import icon512 from './icon-512.png';
+import iconMaskable from './icon-maskable-512.png';
+import { manifest, serviceWorker } from './pwa.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, deletePhoto } from './photos.js';
 
@@ -109,6 +113,18 @@ export default {
     if (url.pathname === '/banner.jpg') {
       return new Response(banner, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=86400' } });
     }
+    if (url.pathname === '/manifest.webmanifest') {
+      return new Response(JSON.stringify(manifest), { headers: { 'content-type': 'application/manifest+json', 'cache-control': 'private, max-age=3600' } });
+    }
+    if (url.pathname === '/sw.js') {
+      return new Response(serviceWorker, { headers: { 'content-type': 'text/javascript', 'cache-control': 'no-cache' } });
+    }
+    const icons = { '/icon-192.png': icon192, '/icon-512.png': icon512, '/icon-maskable-512.png': iconMaskable };
+    if (icons[url.pathname]) {
+      return new Response(icons[url.pathname], { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=86400' } });
+    }
+    // A share that arrived before the service worker was running: just open the page.
+    if (url.pathname === '/share') return Response.redirect(new URL('/?shared=0', url), 303);
     if (url.pathname === '/' || url.pathname === '/index.html') {
       return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
     }
