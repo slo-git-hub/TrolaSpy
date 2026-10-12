@@ -130,6 +130,7 @@
   .adm input[type=number], .adm input[type=date] { border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px;
     font: inherit; background: var(--solid); color: var(--text); width: 72px; }
   .adm input[type=date] { width: auto; }
+  .adm select { border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px; font: inherit; background: var(--solid); color: var(--text); }
   .adm .note { color: var(--muted); font-size: 12px; line-height: 1.5; }
   .adm a { color: var(--accent-ink); }
   .adm .note code { background: var(--off); border-radius: 6px; padding: 1px 6px; color: var(--text); font-size: 12px; word-break: break-all; }
@@ -344,7 +345,7 @@
   <section class="card" id="admincard" hidden>
     <div class="chart-head">
       <h2>Admin</h2>
-      <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button></div>
+      <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button><button data-t="public">Public</button></div>
     </div>
     <div class="adm" id="adm-alerts">
       <label class="row"><input type="checkbox" id="al-enabled"><b>Send alerts</b></label>
@@ -357,6 +358,17 @@
       <label class="row">Electricity price <input type="number" id="al-price" min="0" step="0.01"> € per kWh</label>
       <div class="note">Used for the cost in the monthly summary. Leave empty to hide it.</div>
       <div class="btns"><button class="btn primary" id="al-save">Save</button><span class="msg" id="al-msg"></span></div>
+    </div>
+    <div class="adm" id="adm-public" hidden>
+      <label class="row"><input type="checkbox" id="pb-enabled"><b>Public "Where's Trola" page</b></label>
+      <div class="note">Anyone with the link sees roughly where Trola is, without logging in. Battery, charging, routes and the exact spot stay private.
+        <span id="pb-linkrow"><br><a id="pb-link" target="_blank" rel="noopener"></a> <a href="#" id="pb-copy">Copy</a></span></div>
+      <label class="row">Location <select id="pb-detail"><option value="town">Town, about 5 km</option><option value="area">Area, about 1.5 km</option></select></label>
+      <label class="row">Show <select id="pb-delay"><option value="0">Now</option><option value="1">1 hour behind</option>
+        <option value="3">3 hours behind</option><option value="12">12 hours behind</option><option value="24">A day behind</option></select></label>
+      <label class="row"><input type="checkbox" id="pb-photos">Photo pins</label>
+      <div class="note">Photo pins sit on the exact spot where each photo was taken. With a delay, newer photos wait too.</div>
+      <div class="btns"><button class="btn primary" id="pb-save">Save</button><span class="msg" id="pb-msg"></span></div>
     </div>
     <div class="adm" id="adm-health" hidden>
       <div class="chart-head" style="margin:0"><span class="note" id="hl-sum"></span>
@@ -1008,7 +1020,7 @@ function openAdmin() {
 $('admtab').addEventListener('click', (e) => {
   const t = e.target.dataset && e.target.dataset.t; if (!t) return;
   document.querySelectorAll('#admtab button').forEach((b) => b.classList.toggle('active', b === e.target));
-  ['alerts', 'health', 'data'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
+  ['alerts', 'health', 'data', 'public'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
   if (t === 'health') loadHealth();
   if (t === 'data') loadDataInfo();
 });
@@ -1019,8 +1031,28 @@ async function loadSettings() {
     $('al-enabled').checked = s.alerts.enabled; $('al-target').checked = s.alerts.target_on; $('al-target-soc').value = s.alerts.target_soc;
     $('al-done').checked = s.alerts.done_on; $('al-low').checked = s.alerts.low_on; $('al-low-soc').value = s.alerts.low_soc;
     $('al-price').value = s.price ?? ''; pushKey = s.push_key; pushDevices = s.devices; showPush();
+    showPublic(s.public, s.public_url);
   } catch (e) { say('al-msg', e.message); }
 }
+
+function showPublic(p, link) {
+  $('pb-enabled').checked = p.enabled; $('pb-detail').value = p.detail; $('pb-delay').value = String(p.delay_h);
+  $('pb-photos').checked = p.photos;
+  $('pb-linkrow').hidden = !link;
+  if (link) { $('pb-link').href = link; $('pb-link').textContent = link.replace(/^https:\/\/|\/$/g, ''); }
+}
+$('pb-save').addEventListener('click', async () => {
+  say('pb-msg', 'Saving…');
+  try {
+    const r = await api('public', { method: 'PUT', body: JSON.stringify({ enabled: $('pb-enabled').checked,
+      detail: $('pb-detail').value, delay_h: Number($('pb-delay').value), photos: $('pb-photos').checked }) });
+    say('pb-msg', r.public.enabled ? 'Saved. The public page is on.' : 'Saved. The public page shows nothing.');
+  } catch (e) { say('pb-msg', e.message); }
+});
+$('pb-copy').addEventListener('click', (e) => {
+  e.preventDefault();
+  navigator.clipboard.writeText($('pb-link').href).then(() => say('pb-msg', 'Link copied.'), () => say('pb-msg', 'Press and hold the link to copy it.'));
+});
 
 // Phone alerts are Web Push notifications, shown by the service worker (see pwa.js).
 let pushKey = null, pushDevices = [];

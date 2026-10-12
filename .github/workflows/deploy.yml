@@ -58,7 +58,7 @@ jobs:
             id=$(npx wrangler d1 list --json | jq -r '.[] | select(.name=="trolaspy") | .uuid')
           fi
           echo "Using D1 database $id"
-          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$id/" ingest/wrangler.toml web/wrangler.toml
+          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$id/" ingest/wrangler.toml web/wrangler.toml public/wrangler.toml
           npx wrangler d1 execute trolaspy --remote --file schema.sql -c ingest/wrangler.toml
 
       - name: Create the photo bucket (R2)

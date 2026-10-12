@@ -5,8 +5,9 @@
   "scripts": {
     "dev:ingest": "wrangler dev -c ingest/wrangler.toml --port 8787",
     "dev:web": "wrangler dev -c web/wrangler.toml --port 8788",
+    "dev:public": "wrangler dev -c public/wrangler.toml --port 8789",
     "db:init": "wrangler d1 execute trolaspy --remote --file schema.sql -c ingest/wrangler.toml",
-    "deploy": "wrangler deploy -c ingest/wrangler.toml && wrangler deploy -c web/wrangler.toml",
+    "deploy": "wrangler deploy -c ingest/wrangler.toml && wrangler deploy -c web/wrangler.toml && wrangler deploy -c public/wrangler.toml",
     "test": "node --test"
   },
   "devDependencies": {

@@ -1,7 +1,8 @@
-// Admin-only API: alert settings, battery health, and backup / restore / delete of readings.
+// Admin-only API: alert and public-page settings, battery health, and backup / restore / delete of readings.
 import { COLUMNS } from '../../ingest/src/parse.js';
 import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared/alerts.js';
 import { createVapidKeys } from '../../shared/push.js';
+import { DETAIL_KM, DELAYS_H, publicSettings } from '../../shared/public.js';
 import { ensureDays, forgetDays } from '../../shared/stats.js';
 import { archiveSessions } from '../../shared/charges.js';
 
@@ -20,6 +21,10 @@ async function vapid(db, url) {
   return keys;
 }
 
+// The public page is the "trola" Worker on the same workers.dev subdomain (or PUBLIC_URL).
+const publicUrl = (env, url) => env.PUBLIC_URL
+  || (url.hostname.endsWith('.workers.dev') ? `https://${url.hostname.replace(/^[^.]+/, 'trola')}/` : null);
+
 // Browsers that get alerts, without their keys.
 const devices = (subs) => (subs || []).map(({ endpoint, label, added }) => ({ endpoint, label, added }));
 
@@ -31,7 +36,8 @@ export async function handleAdmin(request, env, url) {
   if (path === 'settings' && method === 'GET') {
     const s = await getSettings(db, ['alerts', 'price', 'push_subs']);
     return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null,
-      push_key: (await vapid(db, url)).publicKey, devices: devices(s.push_subs) });
+      push_key: (await vapid(db, url)).publicKey, devices: devices(s.push_subs),
+      public: await publicSettings(db), public_url: publicUrl(env, url) });
   }
   if (path === 'settings' && method === 'PUT') {
     const body = await request.json();
@@ -44,6 +50,16 @@ export async function handleAdmin(request, env, url) {
     const price = body.price === null || body.price === '' ? null : Math.max(0, Number(body.price)) || 0;
     await Promise.all([putSetting(db, 'alerts', alerts), putSetting(db, 'price', price)]);
     return json({ ok: true, alerts, price });
+  }
+  if (path === 'public' && method === 'PUT') {
+    const b = await request.json();
+    const cfg = {
+      enabled: !!b.enabled, photos: !!b.photos,
+      detail: DETAIL_KM[b.detail] ? b.detail : 'town',
+      delay_h: DELAYS_H.includes(Number(b.delay_h)) ? Number(b.delay_h) : 0,
+    };
+    await putSetting(db, 'public', cfg);
+    return json({ public: cfg });
   }
   if (path === 'push-subscribe' && method === 'POST') {
     const { subscription: sub, label } = await request.json();

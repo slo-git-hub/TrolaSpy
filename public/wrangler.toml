@@ -1,0 +1,26 @@
+# Public "Where's Trola" page: anyone can open it, no login (keep it out of Cloudflare Access).
+# Shows only a rough area and status, and stays blank until the admin switches it on.
+name = "trola"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "trolaspy"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html", "**/*.svg"]
+fallthrough = true
+
+[[rules]]
+type = "Data"
+globs = ["**/*.png", "**/*.jpg"]
+fallthrough = true
+
+# Photo pins (read only).
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "trolaspy-photos"

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#175064">
+<title>Where's Trola</title>
+<meta name="description" content="Roughly where TROLA, an electric camper van, is on the road right now.">
+<meta property="og:title" content="Where's Trola">
+<meta property="og:description" content="Roughly where TROLA, an electric camper van, is on the road right now.">
+<meta property="og:image" content="/banner.jpg">
+<link rel="icon" href="/logo">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script>
+  // Follow the phone/computer setting.
+  document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+</script>
+<style>
+  :root {
+    --bg: #e8f1f1; --card: rgba(255,255,255,.93); --solid: #ffffff; --text: #123a49;
+    --muted: #557280; --faint: #93aab3; --line: #d6e4e6; --navy: #175064;
+    --accent: #04a4d8; --accent-ink: #0a6f96; --accent-soft: #d5eef8;
+    --charge: #c27c0e; --charge-soft: #fbedc9; --off: #e3ecee;
+    --shadow: 0 8px 30px rgba(23,80,100,.14);
+  }
+  :root[data-theme="dark"] { --bg: #0b1a20; --card: rgba(17,36,44,.93); --solid: #132932; --text: #e3f0f3;
+      --muted: #9db6bf; --faint: #66808a; --line: #23404b; --navy: #cfe7ee;
+      --accent: #2fc0f0; --accent-ink: #5fd0f5; --accent-soft: #10394a;
+      --charge: #f5c04a; --charge-soft: #3b2e0e; --off: #1b3540;
+      --shadow: 0 8px 30px rgba(0,0,0,.45); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.4 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  #map { position: fixed; inset: 0; z-index: 0; background: var(--bg); }
+
+  .panel { position: absolute; z-index: 500; top: 16px; left: 16px; bottom: 16px; width: 380px;
+    display: flex; flex-direction: column; gap: 12px; overflow-y: auto; scrollbar-width: none;
+    padding-bottom: env(safe-area-inset-bottom); }
+  .panel::-webkit-scrollbar { display: none; }
+  .panel > * { flex: none; }
+  .card { background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); padding: 16px; }
+
+  header.card { display: none; align-items: center; gap: 12px; padding: 12px 14px; }
+  header img.mark { width: 44px; height: 44px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px var(--line); }
+  .word { margin: 0; font-size: 22px; font-weight: 300; letter-spacing: .32em; color: var(--navy); line-height: 1; }
+  header .sub { color: var(--muted); font-size: 12px; margin-top: 4px; letter-spacing: .04em; }
+  .banner { position: relative; padding: 0; overflow: hidden; aspect-ratio: 2 / 1; }
+  .banner img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%; display: block; }
+  .banner .pill { position: absolute; bottom: 10px; right: 10px; }
+
+  .pill { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
+    background: var(--off); padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
+  .banner .pill { background: rgba(255,255,255,.9); color: #557280; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .pill.on i { background: var(--accent); animation: pulse 2s infinite; }
+  .pill.on, .banner .pill.on { color: var(--accent-ink); background: var(--accent-soft); }
+  .banner .pill.on { color: #0a6f96; background: #d5eef8; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+    100% { box-shadow: 0 0 0 9px transparent; } }
+
+  .where h2 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -.2px; }
+  .where .near { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+    font-size: 13px; background: var(--off); color: var(--muted); }
+  .chip svg { width: 14px; height: 14px; }
+  .chip.drive { background: var(--accent-soft); color: var(--accent-ink); }
+  .chip.charge { background: var(--charge-soft); color: var(--charge); }
+  .updated { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile { background: var(--solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+  .tile span { display: block; color: var(--muted); font-size: 12px; }
+  .tile b { font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+
+  .card h3 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; }
+  .card h3 span { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .grid button { border: 0; padding: 0; aspect-ratio: 1; border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--off); }
+  .grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .foot { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; align-items: center;
+    font-size: 12px; color: var(--muted); padding: 0 4px; }
+  .foot a { color: var(--accent-ink); text-decoration: none; font-weight: 600; }
+
+  .van { width: 46px; height: 46px; border-radius: 50%; border: 2px solid #fff; overflow: hidden;
+    box-shadow: 0 0 0 3px var(--accent), 0 6px 16px rgba(0,0,0,.35); background: #fff; }
+  .van img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pin { width: 40px; height: 40px; border-radius: 10px; border: 2px solid #fff; overflow: hidden; background: var(--off);
+    box-shadow: 0 4px 12px rgba(0,0,0,.35); cursor: pointer; transition: transform .15s; }
+  .pin:hover { transform: scale(1.12); }
+  .pin img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .map-tiles { filter: saturate(.7) brightness(1.03); }
+  [data-theme="dark"] .map-tiles { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.45); }
+  .leaflet-control-attribution { font-size: 10px; background: var(--card) !important; color: var(--muted); }
+  .leaflet-control-attribution a { color: var(--muted); }
+  .leaflet-control-zoom { display: none; }
+
+  .lightbox { position: fixed; inset: 0; z-index: 2000; background: rgba(5,15,20,.88); display: none;
+    flex-direction: column; align-items: center; justify-content: center; padding: 16px; gap: 10px; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: 78dvh; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  .lightbox .meta { color: #e3f0f3; text-align: center; max-width: 640px; }
+  .lightbox .meta small { display: block; color: #9db6bf; margin-top: 2px; }
+  .btn { border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
+    background: var(--off); color: var(--text); }
+  .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
+  [hidden] { display: none !important; }
+
+  /* Phones: map on top, cards scroll underneath like a sheet. */
+  @media (max-width: 760px) {
+    #map { position: relative; height: 52dvh; inset: auto; }
+    .panel { position: static; width: auto; margin-top: -32px; padding: 0 12px calc(16px + env(safe-area-inset-bottom));
+      overflow: visible; }
+    .panel > * { position: relative; z-index: 500; }
+    .banner { display: none; }
+    .panel > header.card { display: flex; position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 12px; right: 12px; }
+    .leaflet-bottom { bottom: 32px; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
+  <button class="btn close" id="lbclose" aria-label="Close">✕</button>
+  <img id="lbimg" alt="">
+  <div class="meta"><div id="lbcaption"></div><small id="lbdate"></small></div>
+  <button class="btn" id="lbgo">Show on map</button>
+</div>
+
+<div class="panel">
+  <div class="card banner">
+    <img src="/banner.jpg" alt="TROLA, an electric van on a mountain road">
+    <div class="pill" data-pill><i></i><span>…</span></div>
+  </div>
+  <header class="card">
+    <img class="mark" src="/logo" alt="">
+    <div><h1 class="word">TROLA</h1><div class="sub">on the road</div></div>
+    <div class="pill" data-pill><i></i><span>…</span></div>
+  </header>
+
+  <section class="card where">
+    <h2 id="place">Where's Trola?</h2>
+    <div class="near" id="near"></div>
+    <div class="chips" id="chips"></div>
+    <div class="updated" id="updated">Loading…</div>
+  </section>
+
+  <section class="card" id="totals" hidden>
+    <div class="tiles">
+      <div class="tile"><span>This month</span><b id="month">–</b></div>
+      <div class="tile"><span>Odometer, all electric</span><b id="odo">–</b></div>
+    </div>
+  </section>
+
+  <section class="card" id="photocard" hidden>
+    <h3>Photos from the road <span id="photocount"></span></h3>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <div class="foot"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener">@trolaontheroad</a><span>The exact spot stays private.</span></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmtDate = (ts) => new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+const km = (v) => (v === null || v === undefined ? '–' : `${Math.round(v).toLocaleString()}<small>km</small>`);
+function ago(ts) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 90) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return fmtDate(ts);
+}
+const ICON = {
+  drive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  park: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 16V8h3a2.5 2.5 0 0 1 0 5h-3"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+};
+const STATUS = {
+  driving: { label: 'On the road', cls: 'drive', icon: ICON.drive },
+  parked: { label: 'Parked', cls: '', icon: ICON.park },
+  charging: { label: 'Charging', cls: 'charge', icon: ICON.bolt },
+};
+
+const map = L.map('map', { zoomControl: false }).setView([46.1, 14.8], 7);
+// OpenStreetMap's own tiles: free, no API key; restyled with CSS to match the page.
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, className: 'map-tiles',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+const fitOpts = () => (innerWidth > 760 ? { paddingTopLeft: [420, 40], paddingBottomRight: [40, 40] }
+  : { paddingTopLeft: [24, 96], paddingBottomRight: [24, 48] }); // clear of the header and the sheet
+const areaLayer = L.layerGroup().addTo(map);
+const photoLayer = L.layerGroup().addTo(map);
+let shownArea = '', shownPhotos = '', lbPhoto = null;
+
+// Place name for the area's centre, from OpenStreetMap (asked by the visitor's browser).
+async function placeName(a) {
+  const key = `place:${a.lat},${a.lon}:${navigator.language}`;
+  try { const hit = sessionStorage.getItem(key); if (hit) return JSON.parse(hit); } catch (e) {}
+  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&lat=${a.lat}&lon=${a.lon}`
+    + `&accept-language=${encodeURIComponent(navigator.language || 'en')}`);
+  const ad = (await r.json()).address || {};
+  const v = { place: ad.city || ad.town || ad.village || ad.municipality || ad.county || ad.state || null, country: ad.country || null };
+  try { sessionStorage.setItem(key, JSON.stringify(v)); } catch (e) {}
+  return v;
+}
+
+async function showArea(a) {
+  const key = `${a.lat},${a.lon},${a.radius_m}`;
+  if (key === shownArea) return;
+  shownArea = key;
+  areaLayer.clearLayers();
+  const circle = L.circle([a.lat, a.lon], { radius: a.radius_m, color: css('--accent'), weight: 2, fillOpacity: 0.12 }).addTo(areaLayer);
+  L.marker([a.lat, a.lon], { interactive: false, icon: L.divIcon({ className: '', iconSize: [46, 46], iconAnchor: [23, 23],
+    html: '<div class="van"><img src="/logo" alt=""></div>' }) }).addTo(areaLayer);
+  map.fitBounds(circle.getBounds(), { ...fitOpts(), maxZoom: 13 });
+  const within = `within about ${Math.max(1, Math.round(a.radius_m / 1000))} km`;
+  $('place').textContent = 'Somewhere around here';
+  $('near').textContent = within;
+  try {
+    const p = await placeName(a);
+    if (p.place) $('place').textContent = `Near ${p.place}`;
+    $('near').textContent = [p.country, within].filter(Boolean).join(' · ');
+  } catch (e) {}
+}
+
+function showPhotos(list) {
+  const key = list.map((p) => p.id).join();
+  if (key === shownPhotos) return;
+  shownPhotos = key;
+  photoLayer.clearLayers();
+  $('grid').innerHTML = '';
+  for (const ph of list) {
+    L.marker([ph.lat, ph.lon], { zIndexOffset: -100, icon: L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+      html: `<div class="pin"><img src="/photos/${ph.id}_t.jpg" alt=""></div>` }) })
+      .on('click', () => openLightbox(ph)).addTo(photoLayer);
+  }
+  for (const ph of list.slice(0, 9)) {
+    const b = document.createElement('button');
+    b.setAttribute('aria-label', ph.caption || 'Photo');
+    b.innerHTML = `<img src="/photos/${ph.id}_t.jpg" alt="" loading="lazy">`;
+    b.addEventListener('click', () => openLightbox(ph));
+    $('grid').append(b);
+  }
+  $('photocount').textContent = list.length > 9 ? `${list.length} on the map` : '';
+  $('photocard').hidden = !list.length;
+}
+function openLightbox(ph) {
+  lbPhoto = ph;
+  $('lbimg').src = `/photos/${ph.id}.jpg`;
+  $('lbcaption').textContent = ph.caption || '';
+  $('lbdate').textContent = fmtDate(ph.taken_ts || ph.created_ts);
+  $('lightbox').classList.add('open');
+}
+const closeLightbox = () => { $('lightbox').classList.remove('open'); $('lbimg').src = ''; };
+$('lbclose').addEventListener('click', closeLightbox);
+$('lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+$('lbgo').addEventListener('click', () => {
+  const ph = lbPhoto; closeLightbox();
+  scrollTo({ top: 0, behavior: 'smooth' });
+  map.flyTo([ph.lat, ph.lon], 15);
+});
+
+function setPill(text, on) {
+  document.querySelectorAll('[data-pill]').forEach((el) => { el.classList.toggle('on', on); el.querySelector('span').textContent = text; });
+}
+
+async function refresh() {
+  let d;
+  try { d = await fetch('/api/where', { cache: 'no-store' }).then((r) => r.json()); } catch (e) { return; }
+  if (!d.enabled) {
+    $('place').textContent = 'Trola is off the radar';
+    $('near').textContent = 'Its location is private right now. Follow along on Instagram instead.';
+    $('chips').innerHTML = ''; $('updated').textContent = '';
+    $('totals').hidden = true; showPhotos([]); areaLayer.clearLayers(); shownArea = '';
+    setPill('Private', false);
+    return;
+  }
+  if (d.area) await showArea(d.area);
+  else { $('place').textContent = 'No location yet'; $('near').textContent = ''; }
+  const st = STATUS[d.status] || STATUS.parked;
+  $('chips').innerHTML = `<span class="chip ${st.cls}">${st.icon}${st.label}</span>`;
+  const live = !d.delay_h && d.seen_ts && Date.now() - d.seen_ts < 15 * 60 * 1000;
+  setPill(live ? 'Live' : st.label, !!live);
+  $('updated').textContent = d.seen_ts
+    ? `Seen ${ago(d.seen_ts)}${d.delay_h ? `. This page runs ${d.delay_h} h behind.` : ''}` : '';
+  $('month').innerHTML = km(d.month_km);
+  $('odo').innerHTML = km(d.odo_km);
+  $('totals').hidden = d.month_km === null && d.odo_km === null;
+  showPhotos(d.photos || []);
+}
+refresh();
+setInterval(refresh, 60 * 1000);
+</script>
+</body>
+</html>

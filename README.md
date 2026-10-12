@@ -16,6 +16,10 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   roughly 2 MB a day even with nonstop 10 s uploads).
 - **`web/`** – the map page (Leaflet + OpenStreetMap) and its small JSON API
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
+- **`public/`** – the public "Where's Trola" page (Worker `trola`, no login): a rough area
+  (a 5 km or 1.5 km grid cell, `shared/public.js`), on the road / parked / charging, km totals
+  and optionally the photo pins, optionally some hours late. Blank until switched on in the
+  admin card's Public tab. Must stay outside Cloudflare Access.
 - **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings).
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
   as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the

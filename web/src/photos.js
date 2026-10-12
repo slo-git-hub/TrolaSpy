@@ -16,12 +16,12 @@ export async function listPhotos(env) {
   return json({ photos: results });
 }
 
-export async function servePhoto(env, key) {
+export async function servePhoto(env, key, cacheControl = 'private, max-age=31536000, immutable') {
   if (!env.PHOTOS) return new Response('Photo storage not configured', { status: 503 });
   const obj = await env.PHOTOS.get(`photos/${key}`);
   if (!obj) return new Response('Not found', { status: 404 });
   return new Response(obj.body, {
-    headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable', etag: obj.httpEtag },
+    headers: { 'content-type': 'image/jpeg', 'cache-control': cacheControl, etag: obj.httpEtag },
   });
 }
 
