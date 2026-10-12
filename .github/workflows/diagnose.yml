@@ -32,3 +32,12 @@ jobs:
                     ROUND(AVG(-bat_volts*bat_amps)) avg_va_in, ROUND(MAX(-bat_volts*bat_amps)) max_va_in, ROUND(MIN(bat_amps),1) min_amps
              FROM readings WHERE ts >= $SINCE AND (chrg_mode > 0 OR bat_amps < -5) AND COALESCE(speed,0) < 1
              GROUP BY ts/3600000 ORDER BY 1 DESC LIMIT 24"
+          q "Charging readings, last 24h (minutes from first; no positions)" \
+            "WITH c AS (SELECT ts, soc, gids, chrg_mode, plug_state, pwr_sw, bat_volts, bat_amps, chrg_pwr FROM readings
+                         WHERE ts >= (strftime('%s','now') - 86400) * 1000 AND (chrg_mode > 0 OR bat_amps < -3))
+             SELECT ROUND((ts - (SELECT MIN(ts) FROM c)) / 60000.0, 1) AS min, ROUND((ts - LAG(ts) OVER (ORDER BY ts)) / 1000.0) AS gap_s,
+                    soc, gids, chrg_mode AS mode, plug_state AS plug, pwr_sw AS pwr, ROUND(-bat_volts * bat_amps) AS w_in, chrg_pwr
+               FROM c ORDER BY ts LIMIT 200"
+          q "All readings per 10 min, last 24h (when LeafSpy was uploading)" \
+            "SELECT ROUND((ts/600000 - (strftime('%s','now') - 86400) / 600) / 6.0, 1) AS hours_ago_rev, COUNT(*) n, MAX(chrg_mode) mode, ROUND(MIN(soc)) soc_min, ROUND(MAX(soc)) soc_max
+               FROM readings WHERE ts >= (strftime('%s','now') - 86400) * 1000 GROUP BY ts/600000 ORDER BY 1"
