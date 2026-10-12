@@ -38,9 +38,11 @@ export default {
   },
 
   async scheduled(event, env) {
-    const days = Number(env.RETENTION_DAYS) || 30;
+    await archiveSessions(env.DB); // keep charging sessions before any readings go
+    // RETENTION_DAYS = "0" (the default) keeps readings forever.
+    const days = Number(env.RETENTION_DAYS) || 0;
+    if (days <= 0) return;
     const cutoff = Date.now() - days * 24 * 3600 * 1000;
-    await archiveSessions(env.DB); // keep charging sessions before their readings go
     await env.DB.prepare('DELETE FROM readings WHERE ts < ?').bind(cutoff).run();
   },
 };

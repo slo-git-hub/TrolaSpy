@@ -5,14 +5,15 @@ Live position and battery page for our Nissan e-NV200 ("Trola"), fed directly by
 Cloudflare's free tier.
 
 ```
-LeafSpy (tablet) ──GET every 10 s──▶ trolaspy-ingest Worker ──▶ D1 database (30 days)
+LeafSpy (tablet) ──GET every 10 s──▶ trolaspy-ingest Worker ──▶ D1 database (kept forever)
                                                                    │
 you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker ─┘  map + stats
 ```
 
 - **`ingest/`** – public Worker LeafSpy uploads to. Checks the LeafSpy ID/password,
-  stores one row per upload, replies `"status":"0"`, and deletes rows older than
-  30 days once a day.
+  stores one row per upload and replies `"status":"0"`. Readings are kept forever;
+  set `RETENTION_DAYS` in `ingest/wrangler.toml` to delete older ones daily (D1 free: 5 GB,
+  roughly 2 MB a day even with nonstop 10 s uploads).
 - **`web/`** – the map page (Leaflet + OpenStreetMap) and its small JSON API
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
 - **`schema.sql`** – the D1 tables (readings, photos, charges).

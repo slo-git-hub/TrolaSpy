@@ -8,9 +8,9 @@ binding = "DB"
 database_name = "trolaspy"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
-# Daily cleanup of readings older than RETENTION_DAYS.
+# Daily job: saves charging sessions; deletes readings older than RETENTION_DAYS ("0" = keep forever).
 [triggers]
 crons = ["17 3 * * *"]
 
 [vars]
-RETENTION_DAYS = "30"
+RETENTION_DAYS = "0"
