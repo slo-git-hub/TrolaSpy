@@ -5,7 +5,7 @@ import icon192 from './icon-192.png';
 import icon512 from './icon-512.png';
 import iconMaskable from './icon-maskable-512.png';
 import { manifest, serviceWorker } from './pwa.js';
-import { listSessions } from '../../shared/charges.js';
+import { listSessions, computeSessions } from '../../shared/charges.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, deletePhoto } from './photos.js';
 
@@ -32,7 +32,7 @@ async function track(env, hours) {
   // Downsample so long ranges stay light: one point per bucket.
   const bucketMs = Math.max(10_000, Math.ceil((hours * 3600 * 1000) / MAX_POINTS));
   const { results } = await env.DB.prepare(
-    `SELECT MIN(ts) AS ts, lat, lon, soc, speed, chrg_pwr, pwr_sw, bat_temp, amb_temp,
+    `SELECT MIN(ts) AS ts, lat, lon, NULLIF(soc, 0) AS soc, speed, chrg_pwr, pwr_sw, bat_temp, amb_temp,
             ROUND(bat_volts * bat_amps / 1000.0, 2) AS kw
        FROM readings WHERE ts >= ?
       GROUP BY ts / ?
@@ -45,7 +45,7 @@ async function track(env, hours) {
 // Power is pack volts x amps: positive = drawing from the battery, negative = going in
 // (regen while driving, or charging). Each reading's power is applied to the gap since
 // the previous one; gaps over MAX_GAP_MS (LeafSpy off) count as nothing.
-const MAX_GAP_MS = 60_000;
+const MAX_GAP_MS = 150_000; // LeafSpy uploads every 35-120 s once the tablet dozes
 const MS_PER_KWH = 3.6e9; // W x ms per kWh
 
 async function stats(env, hours) {
@@ -68,7 +68,9 @@ async function stats(env, hours) {
        MAX(CASE WHEN chrg_mode = 0 AND pwr_sw = 1 THEN -w END) / 1000.0 AS max_regen_kw, MAX(w) / 1000.0 AS max_power_kw
      FROM r`
   ).bind(MAX_GAP_MS, MS_PER_KWH, since).first();
-  return { since, ...row };
+  // Charged energy comes from the charging sessions (they also count charges LeafSpy missed).
+  const sessions = await computeSessions(env.DB, since);
+  return { since, ...row, charged_kwh: sessions.reduce((t, s) => t + (s.kwh || 0), 0) };
 }
 
 export default {

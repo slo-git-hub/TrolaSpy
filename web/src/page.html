@@ -752,9 +752,9 @@ function sessionHtml(s, link) {
   const avg = s.charge_ms > 0 ? s.kwh / (s.charge_ms / 3.6e6) : null;
   const a = Math.max(0, Math.min(100, s.soc_start || 0)), b = Math.max(a, Math.min(100, s.soc_end || 0));
   return `<div class="cs${link ? ' link' : ''}" data-start="${s.start_ts}">
-    <div class="cs-head">${fmtDate(s.start_ts)} <span class="tag">${s.mode === 3 ? 'DC' : 'AC'}</span>${isNow(s) ? '<span class="tag now">Charging now</span>' : ''}</div>
+    <div class="cs-head">${fmtDate(s.start_ts)} ${s.mode === 3 ? '<span class="tag">DC</span>' : s.mode ? '<span class="tag">AC</span>' : '<span class="tag" title="LeafSpy was off during this charge; worked out from the battery before and after">LeafSpy off</span>'}${isNow(s) ? '<span class="tag now">Charging now</span>' : ''}</div>
     <div class="cs-grid">
-      <div><span>Time</span><b>${dur(ms)}</b></div>
+      <div><span>Time</span><b>${s.charge_ms ? '' : '≤ '}${dur(ms)}</b></div>
       <div><span>Energy</span><b>${n(s.kwh, 1)} kWh</b></div>
       <div><span>Average</span><b>${avg === null ? '–' : n(avg, 1)} kW</b></div>
       <div><span>Peak</span><b>${n(s.max_kw, 1)} kW</b></div>

@@ -40,8 +40,8 @@ export function parseReading(params, ts = Date.now()) {
     lon,
     elv: num(params.get('Elv')),
     speed: msToKmh(num(params.get('Speed'))),
-    soc: num(params.get('SOC')),
-    gids: int(params.get('Gids')),
+    soc: num(params.get('SOC')) || null, // LeafSpy sometimes sends 0 before the car answers
+    gids: int(params.get('Gids')) || null,
     soh: num(params.get('SOH')),
     ahr: num(params.get('AHr')),
     hx: num(params.get('Hx')),
