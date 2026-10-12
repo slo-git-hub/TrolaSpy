@@ -20,6 +20,18 @@ jobs:
         run: |
           q() { echo "== $1"; npx wrangler d1 execute trolaspy --remote --json --command "$2" | jq -c '.[0].results[]'; }
           SINCE="(strftime('%s','now') - 3*86400) * 1000"
+          q "Outside temperature: suspicious values (above 45 or below -30 C)" \
+            "SELECT amb_temp, COUNT(*) n, GROUP_CONCAT(DISTINCT pwr_sw) pwr, GROUP_CONCAT(DISTINCT chrg_mode) modes, MAX(speed) max_speed,
+                    ROUND(MIN(bat_temp),1) bat_min, ROUND(MAX(bat_temp),1) bat_max,
+                    ROUND((strftime('%s','now')*1000 - MAX(ts)) / 3600000.0, 1) last_h_ago
+             FROM readings WHERE amb_temp > 45 OR amb_temp < -30 GROUP BY amb_temp ORDER BY n DESC LIMIT 20"
+          q "Outside temperature per hour, last 3 days" \
+            "SELECT ROUND((strftime('%s','now')*1000 - MAX(ts)) / 3600000.0, 1) h_ago, COUNT(*) n, MIN(amb_temp) amb_min, MAX(amb_temp) amb_max,
+                    ROUND(MIN(bat_temp),1) bat_min, ROUND(MAX(bat_temp),1) bat_max, GROUP_CONCAT(DISTINCT pwr_sw) pwr, MAX(chrg_mode) mode
+             FROM readings WHERE ts >= $SINCE GROUP BY ts / 3600000 ORDER BY MAX(ts) DESC LIMIT 72"
+          q "Last 40 readings (no positions)" \
+            "SELECT ROUND((strftime('%s','now')*1000 - ts) / 60000.0) min_ago, amb_temp, bat_temp, pwr_sw, chrg_mode, plug_state, speed, soc
+             FROM readings ORDER BY ts DESC LIMIT 40"
           q "Driving: speed vs rpm (rows with speed > 3)" \
             "SELECT COUNT(*) n, ROUND(AVG(speed),1) avg_speed, ROUND(MAX(speed),1) max_speed, ROUND(AVG(rpm*1.0/speed),1) rpm_per_speed FROM readings WHERE ts >= $SINCE AND speed > 3 AND rpm > 0"
           q "Driving: distance from speed x time vs odometer, per hour" \
