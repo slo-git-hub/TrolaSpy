@@ -12,8 +12,9 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
 
 - **`ingest/`** – public Worker LeafSpy uploads to. Checks the LeafSpy ID/password,
   stores one row per upload and replies `"status":"0"`. Readings are kept forever;
-  set `RETENTION_DAYS` in `ingest/wrangler.toml` to delete older ones daily (D1 free: 5 GB,
-  roughly 2 MB a day even with nonstop 10 s uploads).
+  set `RETENTION_DAYS` in `ingest/wrangler.toml` to delete older ones daily (D1 free: 500 MB
+  per database, 5 GB per account; roughly 2 MB a day even with nonstop 10 s uploads). The
+  admin card's Data tab shows the space used by the database and the photos.
 - **`web/`** – the map page (Leaflet + OpenStreetMap) and its small JSON API
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
 - **`public/`** – the public "Where's Trola" page (Worker `trola`, no login): a rough area

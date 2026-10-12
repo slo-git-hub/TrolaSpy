@@ -25,6 +25,20 @@ async function vapid(db, url) {
 const publicUrl = (env, url) => env.PUBLIC_URL
   || (url.hostname.endsWith('.workers.dev') ? `https://${url.hostname.replace(/^[^.]+/, 'trola')}/` : null);
 
+// Total size of the photo files in R2 (photo + thumbnail each). Each list call is a
+// subrequest, and a free-plan Worker may make 50, so very large buckets are only counted in part.
+async function photoBytes(bucket) {
+  if (!bucket) return { bytes: null, partial: false };
+  let bytes = 0, cursor;
+  for (let page = 0; page < 40; page++) {
+    const r = await bucket.list({ prefix: 'photos/', cursor, limit: 1000 });
+    for (const o of r.objects) bytes += o.size;
+    if (!r.truncated) return { bytes, partial: false };
+    cursor = r.cursor;
+  }
+  return { bytes, partial: true };
+}
+
 // Browsers that get alerts, without their keys.
 const devices = (subs) => (subs || []).map(({ endpoint, label, added }) => ({ endpoint, label, added }));
 
@@ -103,8 +117,15 @@ export async function handleAdmin(request, env, url) {
   }
 
   if (path === 'data' && method === 'GET') {
-    const row = await db.prepare('SELECT COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last FROM readings').first();
-    return json(row);
+    const res = await db.prepare('SELECT COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last FROM readings').all();
+    const [recent, photos, files] = await Promise.all([
+      db.prepare('SELECT COUNT(*) AS n FROM readings WHERE ts >= ?').bind(Date.now() - 30 * 864e5).first(),
+      db.prepare('SELECT COUNT(*) AS n FROM photos').first(),
+      photoBytes(env.PHOTOS),
+    ]);
+    // D1 reports the database file size with every query.
+    return json({ ...res.results[0], db_bytes: res.meta.size_after ?? null, readings_30d: recent.n,
+      photos: photos.n, photo_bytes: files.bytes, photo_bytes_partial: files.partial });
   }
   if (path === 'export' && method === 'GET') {
     const after = Number(url.searchParams.get('after')) || 0;

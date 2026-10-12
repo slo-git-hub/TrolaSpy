@@ -140,6 +140,13 @@
   .adm .btn.danger { background: #b4232a; color: #fff; }
   .adm .msg { font-size: 12px; color: var(--muted); }
   .adm h3 { margin: 4px 0 0; font-size: 13px; }
+  .meters { display: flex; flex-direction: column; gap: 12px; }
+  .meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .meter-head span { color: var(--muted); font-size: 13px; }
+  .meter-head b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .meter-head b small { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .meter .bar { height: 8px; border-radius: 4px; background: var(--off); margin: 5px 0 4px; overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); min-width: 4px; }
   .adm hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
   .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
 
@@ -378,6 +385,9 @@
     </div>
     <div class="adm" id="adm-data" hidden>
       <div class="note" id="dt-sum">Loading…</div>
+      <h3>Storage</h3>
+      <div class="note">Cloudflare's free plan allows 500 MB for the database and 10 GB for photos.</div>
+      <div class="meters" id="dt-storage"></div>
       <h3>Backup</h3>
       <div class="btns"><button class="btn primary" id="dt-backup">Download all readings (CSV)</button><span class="msg" id="dt-bmsg"></span></div>
       <h3>Restore</h3>
@@ -1145,10 +1155,33 @@ $('hltab').addEventListener('click', (e) => {
 addEventListener('resize', () => { if (!$('adm-health').hidden) renderHealth(); });
 
 const dateIn = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+// Used space against Cloudflare's free limits: 500 MB per D1 database, 10 GB of R2.
+const DB_FREE = 500e6, PHOTOS_FREE = 10e9;
+function size(b) {
+  if (b === null || b === undefined) return '–';
+  if (b < 1e6) return `${(b / 1e3).toFixed(b < 1e4 ? 1 : 0)} KB`;
+  if (b < 1e9) return `${(b / 1e6).toFixed(b < 1e7 ? 1 : 0)} MB`;
+  return `${+(b / 1e9).toFixed(2)} GB`;
+}
+function meter(label, used, free, note) {
+  const pct = used ? Math.min(100, (used / free) * 100) : 0;
+  return `<div class="meter"><div class="meter-head"><span>${label}</span><b>${size(used)} <small>of ${size(free)}</small></b></div>
+    <div class="bar" title="${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}% used"><i style="width:${pct}%"></i></div><div class="note">${note}</div></div>`;
+}
+function showStorage(d) {
+  // Growth at the last 30 days' pace, from the average size of a stored reading.
+  const perMonth = d.db_bytes && d.n ? (d.db_bytes / d.n) * d.readings_30d : 0;
+  const years = perMonth ? (DB_FREE - d.db_bytes) / perMonth / 12 : null;
+  const dbNote = !perMonth ? 'Readings, charging sessions, day summaries and settings.'
+    : `About ${size(perMonth)} a month lately: room for ${years >= 100 ? 'well over 100 years' : years >= 2 ? `about ${Math.round(years)} years` : `about ${Math.max(1, Math.round(years * 12))} months`} at that pace.`;
+  const photoNote = `${d.photos.toLocaleString()} photo${d.photos === 1 ? '' : 's'}, each stored with a thumbnail${d.photo_bytes_partial ? ' (counted in part)' : ''}.`;
+  $('dt-storage').innerHTML = meter('Database', d.db_bytes, DB_FREE, dbNote) + meter('Photos', d.photo_bytes, PHOTOS_FREE, photoNote);
+}
 async function loadDataInfo() {
   try {
     const d = await api('data');
     say('dt-sum', d.n ? `${d.n.toLocaleString()} readings stored, from ${fmtDate(d.first)} to ${fmtDate(d.last)}.` : 'No readings stored yet.');
+    showStorage(d);
     if (d.n && !$('dt-from').value) { $('dt-from').value = dateIn(d.first); $('dt-to').value = dateIn(d.first); }
   } catch (e) { say('dt-sum', e.message); }
 }
