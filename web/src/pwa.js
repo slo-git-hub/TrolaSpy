@@ -1,6 +1,7 @@
 // Installable app + Android share target, so photos can be shared to TrolaSpy
 // from another app (e.g. pCloud) instead of picked through the browser's file picker.
 // Android hides GPS from browser file pickers, but not from files shared by an app.
+// The service worker also shows the admin's phone alerts.
 
 export const manifest = {
   name: 'TrolaSpy',
@@ -41,6 +42,23 @@ self.addEventListener('fetch', (e) => {
       headers: { 'content-type': f.type || 'image/jpeg', 'x-name': encodeURIComponent(f.name || 'photo.jpg'), 'x-modified': String(f.lastModified || 0) },
     }))));
     return Response.redirect('/?shared=' + files.length, 303);
+  })());
+});
+
+// Phone alerts (see shared/push.js): show them, and open TrolaSpy when one is tapped.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Trola', {
+    body: d.body || '', icon: '/icon-192.png', tag: d.tag || 'trola', renotify: true, data: { url: '/' },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (open.length) return open[0].focus();
+    return self.clients.openWindow((e.notification.data && e.notification.data.url) || '/');
   })());
 });
 `;

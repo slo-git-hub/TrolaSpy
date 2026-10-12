@@ -197,6 +197,7 @@
   .btn.primary { background: var(--accent); color: #fff; }
   .btn.danger { background: #b4232a; color: #fff; }
   .btn:disabled { opacity: .5; cursor: default; }
+  .btn[hidden] { display: none; }
   .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
 
   .uploader { position: fixed; z-index: 1500; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(440px, calc(100% - 24px));
@@ -346,16 +347,16 @@
       <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button></div>
     </div>
     <div class="adm" id="adm-alerts">
-      <label class="row"><input type="checkbox" id="al-enabled"><b>Send alerts to my phone</b></label>
-      <div class="note">Install the free <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a> app, tap <b>+</b> and subscribe to
-        <code id="al-topic">…</code> <a href="#" id="al-copy">Copy</a>. Keep this name private: anyone who has it can read the alerts.</div>
+      <label class="row"><input type="checkbox" id="al-enabled"><b>Send alerts</b></label>
+      <div class="note">Alerts pop up as notifications from TrolaSpy on each phone or computer where you turn them on. <span id="al-devices"></span></div>
+      <div class="btns"><button class="btn" id="al-push" hidden>Turn on alerts on this phone</button><button class="btn" id="al-test">Send test alert</button><span class="msg" id="al-pmsg"></span></div>
       <label class="row"><input type="checkbox" id="al-target">Charged to <input type="number" id="al-target-soc" min="1" max="100">%</label>
       <label class="row"><input type="checkbox" id="al-done">Charging finished</label>
       <label class="row"><input type="checkbox" id="al-low">Battery below <input type="number" id="al-low-soc" min="1" max="100">% (not charging)</label>
       <hr>
       <label class="row">Electricity price <input type="number" id="al-price" min="0" step="0.01"> € per kWh</label>
       <div class="note">Used for the cost in the monthly summary. Leave empty to hide it.</div>
-      <div class="btns"><button class="btn primary" id="al-save">Save</button><button class="btn" id="al-test">Send test alert</button><span class="msg" id="al-msg"></span></div>
+      <div class="btns"><button class="btn primary" id="al-save">Save</button><span class="msg" id="al-msg"></span></div>
     </div>
     <div class="adm" id="adm-health" hidden>
       <div class="chart-head" style="margin:0"><span class="note" id="hl-sum"></span>
@@ -1017,12 +1018,63 @@ async function loadSettings() {
     const s = await api('settings');
     $('al-enabled').checked = s.alerts.enabled; $('al-target').checked = s.alerts.target_on; $('al-target-soc').value = s.alerts.target_soc;
     $('al-done').checked = s.alerts.done_on; $('al-low').checked = s.alerts.low_on; $('al-low-soc').value = s.alerts.low_soc;
-    $('al-price').value = s.price ?? ''; $('al-topic').textContent = s.ntfy_topic;
+    $('al-price').value = s.price ?? ''; pushKey = s.push_key; pushDevices = s.devices; showPush();
   } catch (e) { say('al-msg', e.message); }
 }
-$('al-copy').addEventListener('click', (e) => {
-  e.preventDefault();
-  navigator.clipboard.writeText($('al-topic').textContent).then(() => say('al-msg', 'Copied.'), () => say('al-msg', 'Select the name and copy it.'));
+
+// Phone alerts are Web Push notifications, shown by the service worker (see pwa.js).
+let pushKey = null, pushDevices = [];
+const here = /Android|iPhone|iPad/.test(navigator.userAgent) ? 'this phone' : 'this computer';
+const keyBytes = (k) => Uint8Array.from(atob(k.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((k.length + 3) % 4)), (c) => c.charCodeAt(0));
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const b = /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'a browser';
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iPhone' : /Windows/.test(ua) ? 'Windows'
+    : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${b} on ${os}` : b;
+}
+async function pushReg() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return null;
+  return Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(() => r(null), 5000))]);
+}
+async function showPush() {
+  const reg = await pushReg();
+  const sub = reg && await reg.pushManager.getSubscription().catch(() => null);
+  const mine = !!sub && pushDevices.some((d) => d.endpoint === sub.endpoint);
+  const list = [...(mine ? [here] : []), ...pushDevices.filter((d) => !sub || d.endpoint !== sub.endpoint).map((d) => d.label)];
+  $('al-push').hidden = !reg;
+  $('al-push').textContent = mine ? `Turn off on ${here}` : `Turn on alerts on ${here}`;
+  $('al-push').dataset.on = mine ? '1' : '';
+  $('al-devices').textContent = (list.length ? `They go to ${list.join(', ')}.` : 'None is set up yet.')
+    + (reg ? '' : ' This browser can\'t show them; open TrolaSpy in Chrome to turn them on here.');
+}
+$('al-push').addEventListener('click', async () => {
+  const reg = await pushReg();
+  if (!reg) return;
+  try {
+    let sub = await reg.pushManager.getSubscription();
+    if ($('al-push').dataset.on) {
+      say('al-pmsg', 'Turning off…');
+      if (sub) {
+        pushDevices = (await api('push-unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }) })).devices;
+        await sub.unsubscribe();
+      }
+      say('al-pmsg', `Alerts are off on ${here}.`);
+    } else {
+      if (await Notification.requestPermission() !== 'granted') {
+        say('al-pmsg', 'Notifications are blocked for TrolaSpy in this browser. Allow them in its site settings, then try again.');
+        return;
+      }
+      say('al-pmsg', 'Turning on…');
+      if (sub) await sub.unsubscribe(); // start clean, in case it was made with another key
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(pushKey) });
+      const r = await api('push-subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), label: deviceLabel() }) });
+      pushDevices = r.devices; $('al-enabled').checked = r.alerts.enabled;
+      say('al-pmsg', `Alerts are on for ${here}. Send a test to try it.`);
+    }
+  } catch (e) { say('al-pmsg', `Could not change alerts: ${e.message}`); }
+  showPush();
 });
 $('al-save').addEventListener('click', async () => {
   try {
@@ -1034,8 +1086,11 @@ $('al-save').addEventListener('click', async () => {
   } catch (e) { say('al-msg', e.message); }
 });
 $('al-test').addEventListener('click', async () => {
-  say('al-msg', 'Sending…');
-  try { await api('alert-test', { method: 'POST' }); say('al-msg', 'Sent. Check the ntfy app.'); } catch { say('al-msg', 'Could not reach ntfy. Try again.'); }
+  say('al-pmsg', 'Sending…');
+  try {
+    const r = await api('alert-test', { method: 'POST' });
+    say('al-pmsg', `Sent to ${r.sent === 1 ? '1 device' : `${r.sent} devices`}. It should pop up in a few seconds.`);
+  } catch (e) { say('al-pmsg', e.message === 'Failed to fetch' ? 'Could not reach TrolaSpy. Reload the page and try again.' : e.message); }
 });
 
 async function loadHealth() {

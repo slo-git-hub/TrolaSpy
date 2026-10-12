@@ -1,6 +1,7 @@
 // Admin-only API: alert settings, battery health, and backup / restore / delete of readings.
 import { COLUMNS } from '../../ingest/src/parse.js';
 import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared/alerts.js';
+import { createVapidKeys } from '../../shared/push.js';
 import { ensureDays, forgetDays } from '../../shared/stats.js';
 import { archiveSessions } from '../../shared/charges.js';
 
@@ -10,14 +11,17 @@ const json = (data, status = 200) =>
 const EXPORT_PAGE = 2000;
 const IMPORT_MAX = 500;
 
-async function topic(db) {
-  const s = await getSettings(db, ['ntfy_topic']);
-  if (s.ntfy_topic) return s.ntfy_topic;
-  // A long random name keeps the topic private on the public ntfy server.
-  const t = `trola-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-  await putSetting(db, 'ntfy_topic', t);
-  return t;
+// TrolaSpy's own key pair for signing alerts, made the first time the admin page asks.
+async function vapid(db, url) {
+  const s = await getSettings(db, ['vapid']);
+  if (s.vapid) return s.vapid;
+  const keys = await createVapidKeys(url.origin);
+  await putSetting(db, 'vapid', keys);
+  return keys;
 }
+
+// Browsers that get alerts, without their keys.
+const devices = (subs) => (subs || []).map(({ endpoint, label, added }) => ({ endpoint, label, added }));
 
 export async function handleAdmin(request, env, url) {
   const db = env.DB;
@@ -25,8 +29,9 @@ export async function handleAdmin(request, env, url) {
   const method = request.method;
 
   if (path === 'settings' && method === 'GET') {
-    const s = await getSettings(db, ['alerts', 'price']);
-    return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null, ntfy_topic: await topic(db) });
+    const s = await getSettings(db, ['alerts', 'price', 'push_subs']);
+    return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null,
+      push_key: (await vapid(db, url)).publicKey, devices: devices(s.push_subs) });
   }
   if (path === 'settings' && method === 'PUT') {
     const body = await request.json();
@@ -40,10 +45,34 @@ export async function handleAdmin(request, env, url) {
     await Promise.all([putSetting(db, 'alerts', alerts), putSetting(db, 'price', price)]);
     return json({ ok: true, alerts, price });
   }
+  if (path === 'push-subscribe' && method === 'POST') {
+    const { subscription: sub, label } = await request.json();
+    if (!sub || !/^https:\/\//.test(sub.endpoint || '') || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+      return json({ error: 'This browser gave no usable subscription.' }, 400);
+    }
+    const s = await getSettings(db, ['push_subs', 'alerts']);
+    const subs = (s.push_subs || []).filter((x) => x.endpoint !== sub.endpoint);
+    subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+      label: String(label || 'Browser').slice(0, 60), added: Date.now() });
+    // Turning alerts on for a phone also switches them on.
+    const alerts = { ...DEFAULT_ALERTS, ...(s.alerts || {}), enabled: true };
+    await Promise.all([putSetting(db, 'push_subs', subs), putSetting(db, 'alerts', alerts)]);
+    return json({ devices: devices(subs), alerts });
+  }
+  if (path === 'push-unsubscribe' && method === 'POST') {
+    const { endpoint } = await request.json();
+    const s = await getSettings(db, ['push_subs']);
+    const subs = (s.push_subs || []).filter((x) => x.endpoint !== endpoint);
+    await putSetting(db, 'push_subs', subs);
+    return json({ devices: devices(subs) });
+  }
   if (path === 'alert-test' && method === 'POST') {
-    const ok = await sendAlert(await topic(db), { title: 'TrolaSpy test', body: 'Alerts from Trola will arrive like this.', tags: ['wave'] })
-      .catch(() => false);
-    return json({ ok }, ok ? 200 : 502);
+    try {
+      const sent = await sendAlert(db, { title: 'TrolaSpy test', body: 'Alerts from Trola will arrive like this.', tags: ['wave'] });
+      return json({ ok: true, sent });
+    } catch (e) {
+      return json({ ok: false, error: `Could not send: ${e.message}` }, 502);
+    }
   }
 
   if (path === 'health' && method === 'GET') {

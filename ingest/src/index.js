@@ -1,9 +1,10 @@
 import { archiveSessions } from '../../shared/charges.js';
 import { ensureDays } from '../../shared/stats.js';
-import { checkAlerts } from '../../shared/alerts.js';
+import { checkAlerts, checkQuietCharge } from '../../shared/alerts.js';
 import { parseReading, COLUMNS } from './parse.js';
 
 const LEAFSPY_OK = '"status":"0"';
+const DAILY_CRON = '17 3 * * *'; // as in wrangler.toml
 
 const INSERT_SQL = `INSERT OR REPLACE INTO readings (${COLUMNS.join(', ')}) VALUES (${COLUMNS.map(() => '?').join(', ')})`;
 
@@ -42,6 +43,8 @@ export default {
   },
 
   async scheduled(event, env) {
+    await checkQuietCharge(env.DB); // every 10 min: a charge LeafSpy stopped seeing has ended
+    if (event.cron !== DAILY_CRON) return;
     await archiveSessions(env.DB); // keep charging sessions before any readings go
     await ensureDays(env.DB); // day summaries for the monthly view and battery health
     // RETENTION_DAYS = "0" (the default) keeps readings forever.

@@ -9,8 +9,9 @@ database_name = "trolaspy"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 # Daily job: saves charging sessions; deletes readings older than RETENTION_DAYS ("0" = keep forever).
+# Every 10 min: sends "Charging finished" when LeafSpy stops reporting a charge (car asleep).
 [triggers]
-crons = ["17 3 * * *"]
+crons = ["17 3 * * *", "*/10 * * * *"]
 
 [vars]
 RETENTION_DAYS = "0"

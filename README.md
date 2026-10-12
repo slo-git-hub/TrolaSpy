@@ -18,7 +18,8 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
 - **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings).
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
-  through the free [ntfy](https://ntfy.sh) app (charged to X %, charging finished, battery low),
+  as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the
+  admin card; charged to X %, charging finished, battery low),
   battery health over time (daily SOH / Hx / AHr), and backup (CSV download), restore and
   delete of readings. Day summaries live in the `daily` table (`shared/stats.js`); alert
   rules run on each upload in the ingest Worker (`shared/alerts.js`).
