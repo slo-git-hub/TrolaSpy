@@ -5,7 +5,10 @@ import icon192 from './icon-192.png';
 import icon512 from './icon-512.png';
 import iconMaskable from './icon-maskable-512.png';
 import { manifest, serviceWorker } from './pwa.js';
-import { listSessions, computeSessions } from '../../shared/charges.js';
+import { listSessions } from '../../shared/charges.js';
+import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js';
+import { getSettings } from '../../shared/alerts.js';
+import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, deletePhoto } from './photos.js';
 
@@ -41,36 +44,24 @@ async function track(env, hours) {
   return { since, bucketMs, points: results };
 }
 
-// Energy and driving totals over a time range, computed in D1 (not in the Worker).
-// Power is pack volts x amps: positive = drawing from the battery, negative = going in
-// (regen while driving, or charging). Each reading's power is applied to the gap since
-// the previous one; gaps over MAX_GAP_MS (LeafSpy off) count as nothing.
-const MAX_GAP_MS = 150_000; // LeafSpy uploads every 35-120 s once the tablet dozes
-const MS_PER_KWH = 3.6e9; // W x ms per kWh
-
 async function stats(env, hours) {
   const since = Date.now() - hours * 3600 * 1000;
-  const row = await env.DB.prepare(
-    `WITH r AS (
-       SELECT ts, odo, speed, pwr_sw, COALESCE(chrg_mode, 0) AS chrg_mode, bat_temp, amb_temp,
-              bat_volts * bat_amps AS w,
-              ts - LAG(ts) OVER (ORDER BY ts) AS dt
-         FROM readings WHERE ts >= ?3)
-     SELECT
-       SUM(CASE WHEN dt <= ?1 AND w > 0 AND chrg_mode = 0 THEN w * dt END) / ?2 AS used_kwh,
-       SUM(CASE WHEN dt <= ?1 AND w < 0 AND chrg_mode = 0 AND pwr_sw = 1 THEN -w * dt END) / ?2 AS regen_kwh,
-       SUM(CASE WHEN dt <= ?1 AND w < 0 AND chrg_mode > 0 THEN -w * dt END) / ?2 AS charged_kwh,
-       SUM(CASE WHEN dt <= ?1 AND speed > 1 THEN dt END) / 1000.0 AS drive_s,
-       MAX(speed) AS max_speed,
-       MAX(NULLIF(odo, 0)) - MIN(NULLIF(odo, 0)) AS distance_km,
-       MIN(bat_temp) AS bat_temp_min, MAX(bat_temp) AS bat_temp_max,
-       MIN(amb_temp) AS amb_temp_min, MAX(amb_temp) AS amb_temp_max,
-       MAX(CASE WHEN chrg_mode = 0 AND pwr_sw = 1 THEN -w END) / 1000.0 AS max_regen_kw, MAX(w) / 1000.0 AS max_power_kw
-     FROM r`
-  ).bind(MAX_GAP_MS, MS_PER_KWH, since).first();
-  // Charged energy comes from the charging sessions (they also count charges LeafSpy missed).
-  const sessions = await computeSessions(env.DB, since);
-  return { since, ...row, charged_kwh: sessions.reduce((t, s) => t + (s.kwh || 0), 0) };
+  return { since, ...(await rangeStats(env.DB, since)) };
+}
+
+// One month of day summaries (finished days are stored, today is live). month = YYYY-MM.
+async function monthly(env, month) {
+  if (!/^\d{4}-\d{2}$/.test(month)) month = dayKey(Date.now()).slice(0, 7);
+  const [y, m] = month.split('-').map(Number);
+  const from = Date.UTC(y, m - 1, 1), to = Date.UTC(y, m, 1);
+  const added = await ensureDays(env.DB, from, to);
+  const [days, first, s] = await Promise.all([
+    listDays(env.DB, dayKey(from), dayKey(to - 1)),
+    env.DB.prepare('SELECT MIN(ts) AS ts FROM readings').first(),
+    getSettings(env.DB, ['price']),
+  ]);
+  return { month, days, first_month: first && first.ts ? dayKey(first.ts).slice(0, 7) : month,
+    price: s.price ?? null, pending: added >= 10 };
 }
 
 export default {
@@ -90,6 +81,13 @@ export default {
       if (!/^[0-9a-f-]{36}(_t)?\.jpg$/.test(key)) return new Response('Not found', { status: 404 });
       return servePhoto(env, key);
     }
+    if (url.pathname.startsWith('/api/admin/')) {
+      if (!admin) return json({ error: 'Only the admin can do that.' }, 403);
+      const origin = request.headers.get('Origin');
+      if (method !== 'GET' && origin && origin !== url.origin) return json({ error: 'Bad origin.' }, 403);
+      return handleAdmin(request, env, url);
+    }
+    if (url.pathname === '/api/monthly') return json(await monthly(env, url.searchParams.get('month') || ''));
     if (url.pathname.startsWith('/api/photos') || url.pathname === '/api/position') {
       if (!admin) return json({ error: 'Only the admin can do that.' }, 403);
       // Same-origin check: uploads and deletes only from this page.

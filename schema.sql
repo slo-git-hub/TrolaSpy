@@ -52,3 +52,28 @@ CREATE TABLE IF NOT EXISTS charges (
   soc_end    REAL,
   mode       INTEGER   -- highest ChrgMode seen: 3 = quick charge (DC)
 );
+
+-- One summary row per finished UTC day (monthly view, battery health). Rebuilt when readings change.
+CREATE TABLE IF NOT EXISTS daily (
+  day         TEXT PRIMARY KEY,  -- YYYY-MM-DD
+  readings    INTEGER,
+  distance_km REAL,
+  drive_s     REAL,
+  used_kwh    REAL,
+  regen_kwh   REAL,
+  charged_kwh REAL,
+  charges     INTEGER,
+  max_speed   REAL,
+  soh         REAL,  -- daily averages
+  hx          REAL,
+  ahr         REAL,
+  amb_min     REAL,
+  amb_max     REAL,
+  computed_ts INTEGER
+);
+
+-- Admin settings and alert state, as JSON values.
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);

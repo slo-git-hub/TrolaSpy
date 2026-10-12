@@ -118,6 +118,28 @@
   .tip { position: absolute; top: -6px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
     background: var(--solid); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; font-size: 12px;
     box-shadow: var(--shadow); display: none; }
+  .chart .bar { fill: var(--accent); }
+  .chart .bar.on { fill: var(--accent-ink); }
+  .seg.nav button { min-width: 34px; font-size: 16px; line-height: 1; }
+  .seg.nav button:disabled { opacity: .35; cursor: default; }
+  .mstats { margin-bottom: 12px; }
+  .adm { display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+  .adm[hidden] { display: none; }
+  .adm .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .adm .row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+  .adm input[type=number], .adm input[type=date] { border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px;
+    font: inherit; background: var(--solid); color: var(--text); width: 72px; }
+  .adm input[type=date] { width: auto; }
+  .adm .note { color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .adm a { color: var(--accent-ink); }
+  .adm .note code { background: var(--off); border-radius: 6px; padding: 1px 6px; color: var(--text); font-size: 12px; word-break: break-all; }
+  .adm .btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .adm .btn { padding: 7px 12px; font-size: 13px; background: var(--off); color: var(--text); }
+  .adm .btn.primary { background: var(--accent); color: #fff; }
+  .adm .btn.danger { background: #b4232a; color: #fff; }
+  .adm .msg { font-size: 12px; color: var(--muted); }
+  .adm h3 { margin: 4px 0 0; font-size: 13px; }
+  .adm hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
   .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
 
   .foot { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); padding: 0 4px; }
@@ -306,6 +328,54 @@
     </div>
     <div class="legend" id="legend"></div>
     <div class="chart" id="chart"></div>
+  </section>
+
+  <section class="card" id="monthcard">
+    <div class="chart-head">
+      <h2 id="monthTitle">This month</h2>
+      <div class="seg nav"><button id="mprev" aria-label="Previous month">‹</button><button id="mnext" aria-label="Next month">›</button></div>
+    </div>
+    <div class="stats mstats" id="mstats"></div>
+    <div class="legend"><span>Distance per day</span></div>
+    <div class="chart" id="mchart"></div>
+  </section>
+
+  <section class="card" id="admincard" hidden>
+    <div class="chart-head">
+      <h2>Admin</h2>
+      <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button></div>
+    </div>
+    <div class="adm" id="adm-alerts">
+      <label class="row"><input type="checkbox" id="al-enabled"><b>Send alerts to my phone</b></label>
+      <div class="note">Install the free <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a> app, tap <b>+</b> and subscribe to
+        <code id="al-topic">…</code> <a href="#" id="al-copy">Copy</a>. Keep this name private: anyone who has it can read the alerts.</div>
+      <label class="row"><input type="checkbox" id="al-target">Charged to <input type="number" id="al-target-soc" min="1" max="100">%</label>
+      <label class="row"><input type="checkbox" id="al-done">Charging finished</label>
+      <label class="row"><input type="checkbox" id="al-low">Battery below <input type="number" id="al-low-soc" min="1" max="100">% (not charging)</label>
+      <hr>
+      <label class="row">Electricity price <input type="number" id="al-price" min="0" step="0.01"> € per kWh</label>
+      <div class="note">Used for the cost in the monthly summary. Leave empty to hide it.</div>
+      <div class="btns"><button class="btn primary" id="al-save">Save</button><button class="btn" id="al-test">Send test alert</button><span class="msg" id="al-msg"></span></div>
+    </div>
+    <div class="adm" id="adm-health" hidden>
+      <div class="chart-head" style="margin:0"><span class="note" id="hl-sum"></span>
+        <div class="seg" id="hltab"><button data-k="soh" class="active">SOH</button><button data-k="hx">Hx</button><button data-k="ahr">Capacity</button></div></div>
+      <div class="chart" id="hlchart"></div>
+      <div class="note">One point per day. SOH and Hx are LeafSpy's battery health figures; capacity is the pack's usable amp-hours (AHr).</div>
+    </div>
+    <div class="adm" id="adm-data" hidden>
+      <div class="note" id="dt-sum">Loading…</div>
+      <h3>Backup</h3>
+      <div class="btns"><button class="btn primary" id="dt-backup">Download all readings (CSV)</button><span class="msg" id="dt-bmsg"></span></div>
+      <h3>Restore</h3>
+      <div class="note">Adds the readings from a TrolaSpy backup file. Readings already stored with the same time are replaced.</div>
+      <div class="btns"><button class="btn" id="dt-restore">Choose backup file…</button><span class="msg" id="dt-rmsg"></span></div>
+      <input type="file" id="dt-file" accept=".csv,text/csv" hidden>
+      <h3>Delete</h3>
+      <div class="row">From <input type="date" id="dt-from"> to <input type="date" id="dt-to"></div>
+      <div class="btns"><button class="btn danger" id="dt-delete">Delete these readings</button><span class="msg" id="dt-dmsg"></span></div>
+      <div class="note">Deleting can't be undone. Download a backup first. Photos are not part of readings and are not touched.</div>
+    </div>
   </section>
 
   <div class="foot"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener">@trolaontheroad</a><span id="coords"></span><a id="gmaps" target="_blank" rel="noopener" hidden>Open in Maps ↗</a></div>
@@ -806,6 +876,248 @@ $('chargelist').addEventListener('click', (e) => {
 });
 setInterval(loadCharges, 5 * 60000); // also reloaded when new readings arrive (see refresh)
 
+// ---------- Small charts (monthly bars, battery health line) ----------
+const DAY_MS = 864e5;
+const niceMax = (v) => { if (v <= 0) return 10; const p = 10 ** Math.floor(Math.log10(v)); return Math.ceil(v / p) * p; };
+const fmtDay = (key) => new Date(`${key}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' });
+
+// Bars anchored to the baseline with 4px rounded tops and 2px gaps; tooltip per bar.
+function barChart(el, slots, { value, tip }) {
+  const W = el.clientWidth, H = el.clientHeight, L0 = 34, B = 16, T = 6;
+  const max = niceMax(Math.max(0, ...slots.map(value)));
+  const y = (v) => T + (1 - v / max) * (H - T - B);
+  const sw = (W - L0) / slots.length, bw = Math.max(2, sw - 2);
+  const bars = slots.map((s, i) => {
+    const v = value(s); if (!(v > 0)) return '';
+    const x0 = L0 + i * sw + 1, top = y(v), base = y(0), r = Math.min(4, bw / 2, base - top);
+    return `<path class="bar" data-i="${i}" d="M${x0},${base}V${top + r}Q${x0},${top} ${x0 + r},${top}H${x0 + bw - r}Q${x0 + bw},${top} ${x0 + bw},${top + r}V${base}Z"/>`;
+  }).join('');
+  const labels = [0, Math.floor(slots.length / 2), slots.length - 1];
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    ${[0, max / 2, max].map((v) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="0" y="${y(v) + 3}">${Math.round(v)}</text>`).join('')}
+    ${bars}
+    ${labels.map((i) => `<text class="axis" x="${L0 + (i + 0.5) * sw}" y="${H - 2}" text-anchor="middle">${slots[i].label}</text>`).join('')}
+    ${slots.map((s, i) => `<rect class="hit" data-i="${i}" x="${L0 + i * sw}" y="0" width="${sw}" height="${H - B}" fill="transparent"/>`).join('')}
+  </svg><div class="tip"></div>`;
+  const tipEl = el.querySelector('.tip');
+  const show = (i) => {
+    el.querySelectorAll('.bar').forEach((b) => b.classList.toggle('on', b.dataset.i === String(i)));
+    tipEl.textContent = tip(slots[i]); tipEl.style.display = 'block';
+    const half = tipEl.offsetWidth / 2, px = L0 + (i + 0.5) * sw;
+    tipEl.style.left = `${Math.min(Math.max(px, half), W - half)}px`;
+  };
+  const hide = () => { tipEl.style.display = 'none'; el.querySelectorAll('.bar.on').forEach((b) => b.classList.remove('on')); };
+  el.querySelectorAll('.hit').forEach((h) => {
+    h.addEventListener('pointerenter', () => show(Number(h.dataset.i)));
+    h.addEventListener('pointerdown', () => show(Number(h.dataset.i)));
+  });
+  el.querySelector('svg').addEventListener('pointerleave', hide);
+}
+
+// One series over days, with a crosshair tooltip. pts: [{ t, v }]
+function lineChart(el, pts, { color, unit, digits }) {
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">Not enough days yet. This fills in one point a day.</div>'; return; }
+  const W = el.clientWidth, H = el.clientHeight, L0 = 34, B = 16, T = 6;
+  const vals = pts.map((p) => p.v), span = Math.max(...vals) - Math.min(...vals);
+  const pad = Math.max(span * 0.2, Math.abs(Math.max(...vals)) * 0.01, 0.5);
+  const lo = Math.floor(Math.min(...vals) - pad), hi = Math.ceil(Math.max(...vals) + pad);
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const x = (t) => L0 + ((t - t0) / Math.max(1, t1 - t0)) * (W - L0 - 4);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const fmtT = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: t1 - t0 > 300 * DAY_MS ? '2-digit' : undefined });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    ${[lo, (lo + hi) / 2, hi].map((v) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="0" y="${y(v) + 3}">${+v.toFixed(1)}</text>`).join('')}
+    <path class="line" stroke="var(${color})" d="${pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('')}"/>
+    <text class="axis" x="${L0}" y="${H - 2}">${fmtT(t0)}</text><text class="axis" x="${W}" y="${H - 2}" text-anchor="end">${fmtT(t1)}</text>
+    <line class="cross" y1="${T}" y2="${H - B}" visibility="hidden"/><circle class="dot" r="4" fill="var(${color})" visibility="hidden"/>
+    <rect class="hit" x="${L0}" y="0" width="${W - L0}" height="${H}" fill="transparent"/>
+  </svg><div class="tip"></div>`;
+  const tipEl = el.querySelector('.tip'), cross = el.querySelector('.cross'), dot = el.querySelector('.dot'), hit = el.querySelector('.hit');
+  const show = (clientX) => {
+    const t = t0 + ((clientX - el.getBoundingClientRect().left - L0) / (W - L0 - 4)) * (t1 - t0);
+    let best = pts[0]; for (const p of pts) if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+    const px = x(best.t);
+    cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
+    dot.setAttribute('cx', px); dot.setAttribute('cy', y(best.v)); dot.setAttribute('visibility', 'visible');
+    tipEl.textContent = `${best.v.toFixed(digits)}${unit} · ${new Date(best.t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    tipEl.style.display = 'block';
+    const half = tipEl.offsetWidth / 2; tipEl.style.left = `${Math.min(Math.max(px, half), W - half)}px`;
+  };
+  hit.addEventListener('pointermove', (e) => show(e.clientX));
+  hit.addEventListener('pointerdown', (e) => show(e.clientX));
+  hit.addEventListener('pointerleave', () => { tipEl.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); });
+}
+
+// ---------- Monthly summary ----------
+let month = new Date().toISOString().slice(0, 7), monthData = null;
+async function loadMonth(tries = 0) {
+  let d;
+  try { d = await fetch(`/api/monthly?month=${month}`).then((r) => r.json()); } catch { return; }
+  if (d.pending && tries < 3) return loadMonth(tries + 1); // older days still being summed up
+  monthData = d; renderMonth();
+}
+function renderMonth() {
+  const d = monthData; if (!d) return;
+  const [yy, mm] = d.month.split('-').map(Number);
+  $('monthTitle').textContent = new Date(Date.UTC(yy, mm - 1, 15)).toLocaleDateString([], { month: 'long', year: 'numeric' });
+  $('mprev').disabled = d.month <= d.first_month;
+  $('mnext').disabled = d.month >= new Date().toISOString().slice(0, 7);
+  const sum = (k) => d.days.reduce((t, x) => t + (x[k] || 0), 0);
+  const km = sum('distance_km'), used = sum('used_kwh'), regen = sum('regen_kwh'), charged = sum('charged_kwh'), driveH = sum('drive_s') / 3600;
+  const items = [
+    ['Distance', Math.round(km).toLocaleString(), 'km'],
+    ['Driving', driveH >= 1 ? `${Math.floor(driveH)}h ${Math.round((driveH % 1) * 60)}` : Math.round(driveH * 60), 'min'],
+    ['Consumption', km >= 1 ? n(((used - regen) / km) * 100, 1) : '–', 'kWh/100km'],
+    ['Regen', used > 0.05 ? Math.round((regen / used) * 100) : '–', '% back'],
+    ['Energy used', n(used, 1), 'kWh'],
+    ['Charged', n(charged, 1), 'kWh'],
+    ['Charges', String(sum('charges')), ''],
+    d.price !== null ? ['Cost', n(charged * d.price, 2), '€'] : ['Days out', String(d.days.filter((x) => x.distance_km > 0).length), ''],
+  ];
+  $('mstats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
+  const len = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+  const byDay = Object.fromEntries(d.days.map((x) => [x.day, x]));
+  const slots = Array.from({ length: len }, (_, i) => {
+    const key = `${d.month}-${String(i + 1).padStart(2, '0')}`;
+    return { key, label: String(i + 1), d: byDay[key] };
+  });
+  if (!d.days.some((x) => x.distance_km > 0)) { $('mchart').innerHTML = '<div class="empty">No driving this month yet.</div>'; return; }
+  barChart($('mchart'), slots, {
+    value: (s) => (s.d ? s.d.distance_km || 0 : 0),
+    tip: (s) => (s.d ? `${fmtDay(s.key)} · ${Math.round(s.d.distance_km || 0)} km${s.d.used_kwh ? ` · ${n(s.d.used_kwh, 1)} kWh used` : ''}${s.d.charged_kwh ? ` · ${n(s.d.charged_kwh, 1)} kWh charged` : ''}` : `${fmtDay(s.key)} · no data`),
+  });
+}
+const shiftMonth = (k) => { const [y, m] = month.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1 + k, 1)); month = dt.toISOString().slice(0, 7); loadMonth(); };
+$('mprev').addEventListener('click', () => shiftMonth(-1));
+$('mnext').addEventListener('click', () => shiftMonth(1));
+addEventListener('resize', renderMonth);
+loadMonth();
+setInterval(() => { if (month === new Date().toISOString().slice(0, 7)) loadMonth(); }, 10 * 60000);
+
+// ---------- Admin ----------
+const api = (path, opts = {}) => fetch(`/api/admin/${path}`, { headers: { 'content-type': 'application/json' }, ...opts })
+  .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Error ${r.status}`); return j; });
+const say = (id, text) => { $(id).textContent = text; };
+let health = null, healthKey = 'soh';
+
+function openAdmin() {
+  $('admincard').hidden = false;
+  loadSettings();
+}
+$('admtab').addEventListener('click', (e) => {
+  const t = e.target.dataset && e.target.dataset.t; if (!t) return;
+  document.querySelectorAll('#admtab button').forEach((b) => b.classList.toggle('active', b === e.target));
+  ['alerts', 'health', 'data'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
+  if (t === 'health') loadHealth();
+  if (t === 'data') loadDataInfo();
+});
+
+async function loadSettings() {
+  try {
+    const s = await api('settings');
+    $('al-enabled').checked = s.alerts.enabled; $('al-target').checked = s.alerts.target_on; $('al-target-soc').value = s.alerts.target_soc;
+    $('al-done').checked = s.alerts.done_on; $('al-low').checked = s.alerts.low_on; $('al-low-soc').value = s.alerts.low_soc;
+    $('al-price').value = s.price ?? ''; $('al-topic').textContent = s.ntfy_topic;
+  } catch (e) { say('al-msg', e.message); }
+}
+$('al-copy').addEventListener('click', (e) => {
+  e.preventDefault();
+  navigator.clipboard.writeText($('al-topic').textContent).then(() => say('al-msg', 'Copied.'), () => say('al-msg', 'Select the name and copy it.'));
+});
+$('al-save').addEventListener('click', async () => {
+  try {
+    await api('settings', { method: 'PUT', body: JSON.stringify({
+      alerts: { enabled: $('al-enabled').checked, target_on: $('al-target').checked, target_soc: $('al-target-soc').value,
+        done_on: $('al-done').checked, low_on: $('al-low').checked, low_soc: $('al-low-soc').value },
+      price: $('al-price').value }) });
+    say('al-msg', 'Saved.'); loadMonth();
+  } catch (e) { say('al-msg', e.message); }
+});
+$('al-test').addEventListener('click', async () => {
+  say('al-msg', 'Sending…');
+  try { await api('alert-test', { method: 'POST' }); say('al-msg', 'Sent. Check the ntfy app.'); } catch { say('al-msg', 'Could not reach ntfy. Try again.'); }
+});
+
+async function loadHealth() {
+  try { health = (await api('health')).days; } catch (e) { $('hlchart').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  renderHealth();
+}
+function renderHealth() {
+  if (!health) return;
+  const cfg = { soh: { unit: '%', digits: 1, name: 'SOH' }, hx: { unit: '%', digits: 1, name: 'Hx' }, ahr: { unit: ' Ah', digits: 1, name: 'Capacity' } }[healthKey];
+  const pts = health.filter((d) => d[healthKey] !== null && d[healthKey] !== undefined).map((d) => ({ t: Date.parse(`${d.day}T12:00:00Z`), v: d[healthKey] }));
+  lineChart($('hlchart'), pts, { color: '--batt', unit: cfg.unit, digits: cfg.digits });
+  const first = pts[0], last = pts[pts.length - 1];
+  $('hl-sum').textContent = last ? `${cfg.name} ${last.v.toFixed(cfg.digits)}${cfg.unit}${pts.length > 1 ? ` · ${last.v - first.v >= 0 ? '+' : '−'}${Math.abs(last.v - first.v).toFixed(cfg.digits)} since ${new Date(first.t).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}` : `No ${cfg.name} readings yet.`;
+}
+$('hltab').addEventListener('click', (e) => {
+  const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+  healthKey = k; document.querySelectorAll('#hltab button').forEach((b) => b.classList.toggle('active', b === e.target));
+  renderHealth();
+});
+addEventListener('resize', () => { if (!$('adm-health').hidden) renderHealth(); });
+
+const dateIn = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+async function loadDataInfo() {
+  try {
+    const d = await api('data');
+    say('dt-sum', d.n ? `${d.n.toLocaleString()} readings stored, from ${fmtDate(d.first)} to ${fmtDate(d.last)}.` : 'No readings stored yet.');
+    if (d.n && !$('dt-from').value) { $('dt-from').value = dateIn(d.first); $('dt-to').value = dateIn(d.first); }
+  } catch (e) { say('dt-sum', e.message); }
+}
+$('dt-backup').addEventListener('click', async () => {
+  const btn = $('dt-backup'); btn.disabled = true;
+  try {
+    let after = 0, cols = null; const lines = [];
+    for (;;) {
+      const page = await api(`export?after=${after}`);
+      cols = page.columns;
+      for (const r of page.rows) lines.push(r.map((v) => (v === null ? '' : v)).join(','));
+      say('dt-bmsg', `${lines.length.toLocaleString()} readings…`);
+      if (!page.more || !page.rows.length) break;
+      after = page.rows[page.rows.length - 1][0];
+    }
+    const blob = new Blob([`${cols.join(',')}\n${lines.join('\n')}\n`], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `trolaspy-readings-${dateIn(Date.now())}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    say('dt-bmsg', `Saved ${lines.length.toLocaleString()} readings.`);
+  } catch (e) { say('dt-bmsg', e.message); }
+  btn.disabled = false;
+});
+$('dt-restore').addEventListener('click', () => $('dt-file').click());
+$('dt-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  const rows = (await file.text()).split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split(','));
+  const columns = (rows.shift() || []).map((c) => c.trim());
+  if (!columns.includes('ts')) { say('dt-rmsg', 'This is not a TrolaSpy backup file.'); return; }
+  if (!confirm(`Restore ${rows.length.toLocaleString()} readings from ${file.name}?`)) return;
+  $('dt-restore').disabled = true;
+  try {
+    let done = 0;
+    for (let i = 0; i < rows.length; i += 500) {
+      const r = await api('import', { method: 'POST', body: JSON.stringify({ columns, rows: rows.slice(i, i + 500) }) });
+      done += r.imported; say('dt-rmsg', `${done.toLocaleString()} of ${rows.length.toLocaleString()}…`);
+    }
+    await api('reindex', { method: 'POST' });
+    say('dt-rmsg', `Restored ${done.toLocaleString()} readings.`);
+    loadDataInfo(); refresh(true); loadCharges(); loadMonth();
+  } catch (e) { say('dt-rmsg', e.message); }
+  $('dt-restore').disabled = false;
+});
+$('dt-delete').addEventListener('click', async () => {
+  const f = $('dt-from').value, t = $('dt-to').value;
+  if (!f || !t) { say('dt-dmsg', 'Pick both dates.'); return; }
+  const from = new Date(`${f}T00:00`).getTime(), to = new Date(`${t}T00:00`).getTime() + DAY_MS;
+  if (to <= from) { say('dt-dmsg', 'The end date is before the start date.'); return; }
+  if (!confirm(`Delete all readings from ${f} to ${t} (whole days)? This can't be undone.`)) return;
+  try {
+    const r = await api('delete', { method: 'POST', body: JSON.stringify({ from, to }) });
+    say('dt-dmsg', `Deleted ${r.deleted.toLocaleString()} readings.`);
+    loadDataInfo(); refresh(true); loadCharges(); loadMonth();
+  } catch (e) { say('dt-dmsg', e.message); }
+});
+
 // Photos shared from another app (Share → TrolaSpy) wait in the service worker's cache.
 async function takeShared() {
   const n = Number(new URLSearchParams(location.search).get('shared'));
@@ -829,6 +1141,7 @@ async function takeShared() {
 fetch('/api/me').then((r) => r.json()).then((m) => {
   me = m;
   $('addphoto').hidden = !(m.admin && m.photos);
+  if (m.admin) openAdmin();
 }).catch(() => {}).then(takeShared);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 loadPhotos();

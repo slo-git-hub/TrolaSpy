@@ -9,13 +9,13 @@
 
 const SESSION_GAP_MS = 20 * 60 * 1000;
 const MS_PER_KWH = 3.6e9;
-const KWH_PER_GID = 0.0775;
+export const KWH_PER_GID = 0.0775;
 
 const SESSIONS_SQL = `
 WITH r AS (
   SELECT ts, lat, lon, NULLIF(soc, 0) AS soc, NULLIF(gids, 0) AS gids, chrg_mode, bat_volts * bat_amps AS w
     FROM readings
-   WHERE ts >= ?1
+   WHERE ts >= ?1 AND ts < ?5
      AND (chrg_mode > 0 OR (bat_amps < -3 AND COALESCE(speed, 0) < 1 AND COALESCE(pwr_sw, 0) = 0))),
 d AS (SELECT *, ts - LAG(ts) OVER (ORDER BY ts) AS dt FROM r),
 g AS (SELECT *, SUM(CASE WHEN dt IS NULL OR dt > ?2 THEN 1 ELSE 0 END) OVER (ORDER BY ts) AS sid FROM d),
@@ -55,7 +55,7 @@ WITH a AS (
   SELECT ts, lat, lon, odo, NULLIF(gids, 0) AS gids, NULLIF(soc, 0) AS soc,
          LAG(ts) OVER w AS pts, LAG(NULLIF(gids, 0)) OVER w AS pgids, LAG(NULLIF(soc, 0)) OVER w AS psoc,
          LAG(lat) OVER w AS plat, LAG(lon) OVER w AS plon, LAG(odo) OVER w AS podo
-    FROM readings WHERE ts >= ?1 WINDOW w AS (ORDER BY ts))
+    FROM readings WHERE ts >= ?1 AND ts < ?5 WINDOW w AS (ORDER BY ts))
 SELECT pts AS start_ts, ts AS end_ts, (gids - pgids) * ?4 AS kwh, NULL AS charge_ms, NULL AS max_kw,
        psoc AS soc_start, soc AS soc_end, NULL AS mode,
        COALESCE(plat, lat, (SELECT lat FROM readings WHERE ts <= a.pts AND lat IS NOT NULL ORDER BY ts DESC LIMIT 1)) AS lat,
@@ -64,10 +64,10 @@ SELECT pts AS start_ts, ts AS end_ts, (gids - pgids) * ?4 AS kwh, NULL AS charge
  WHERE ts - pts > ?2 AND gids - pgids >= ?3 AND COALESCE(odo - podo, 0) <= 1
  ORDER BY pts`;
 
-export async function computeSessions(db, since = 0) {
+export async function computeSessions(db, since = 0, until = 8.64e15) {
   const [{ results: seen }, { results: silent }] = await Promise.all([
-    db.prepare(SESSIONS_SQL).bind(since, SESSION_GAP_MS, MS_PER_KWH, KWH_PER_GID).all(),
-    db.prepare(SILENT_SQL).bind(since, SILENT_GAP_MS, SILENT_MIN_GIDS, KWH_PER_GID).all(),
+    db.prepare(SESSIONS_SQL).bind(since, SESSION_GAP_MS, MS_PER_KWH, KWH_PER_GID, until).all(),
+    db.prepare(SILENT_SQL).bind(since, SILENT_GAP_MS, SILENT_MIN_GIDS, KWH_PER_GID, until).all(),
   ]);
   // A gap inside a session LeafSpy saw is already counted there.
   const extra = silent.filter((g) => !seen.some((s) => g.start_ts < s.end_ts && g.end_ts > s.start_ts));
@@ -91,8 +91,8 @@ export async function computeSessions(db, since = 0) {
 }
 
 // Copies finished sessions into the charges table, so they outlive the readings
-// (which are deleted after 30 days). A session that overlaps one already stored is
-// skipped, so one cut short by that deletion is never stored a second time.
+// (if RETENTION_DAYS deletes old ones, or the admin deletes a range). A session that
+// overlaps one already stored is skipped, so one cut short is never stored a second time.
 export async function archiveSessions(db, now = Date.now()) {
   const { results: stored } = await db.prepare('SELECT start_ts, end_ts FROM charges').all();
   const done = (await computeSessions(db)).filter((s) => s.end_ts < now - SESSION_GAP_MS && s.lat !== null

@@ -1,4 +1,6 @@
 import { archiveSessions } from '../../shared/charges.js';
+import { ensureDays } from '../../shared/stats.js';
+import { checkAlerts } from '../../shared/alerts.js';
 import { parseReading, COLUMNS } from './parse.js';
 
 const LEAFSPY_OK = '"status":"0"';
@@ -16,7 +18,7 @@ function safeEqual(a, b) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method !== 'GET' && request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
@@ -33,12 +35,15 @@ export default {
 
     const row = parseReading(params);
     await env.DB.prepare(INSERT_SQL).bind(...COLUMNS.map((c) => row[c])).run();
+    // Phone alerts run after the reply, so LeafSpy is never kept waiting.
+    ctx.waitUntil(checkAlerts(env.DB, row).catch((e) => console.log('alerts:', e.message)));
 
     return new Response(LEAFSPY_OK, { headers: { 'content-type': 'application/json' } });
   },
 
   async scheduled(event, env) {
     await archiveSessions(env.DB); // keep charging sessions before any readings go
+    await ensureDays(env.DB); // day summaries for the monthly view and battery health
     // RETENTION_DAYS = "0" (the default) keeps readings forever.
     const days = Number(env.RETENTION_DAYS) || 0;
     if (days <= 0) return;

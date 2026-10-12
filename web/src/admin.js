@@ -1,0 +1,96 @@
+// Admin-only API: alert settings, battery health, and backup / restore / delete of readings.
+import { COLUMNS } from '../../ingest/src/parse.js';
+import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared/alerts.js';
+import { ensureDays, forgetDays } from '../../shared/stats.js';
+import { archiveSessions } from '../../shared/charges.js';
+
+const json = (data, status = 200) =>
+  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+
+const EXPORT_PAGE = 2000;
+const IMPORT_MAX = 500;
+
+async function topic(db) {
+  const s = await getSettings(db, ['ntfy_topic']);
+  if (s.ntfy_topic) return s.ntfy_topic;
+  // A long random name keeps the topic private on the public ntfy server.
+  const t = `trola-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  await putSetting(db, 'ntfy_topic', t);
+  return t;
+}
+
+export async function handleAdmin(request, env, url) {
+  const db = env.DB;
+  const path = url.pathname.slice('/api/admin/'.length);
+  const method = request.method;
+
+  if (path === 'settings' && method === 'GET') {
+    const s = await getSettings(db, ['alerts', 'price']);
+    return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null, ntfy_topic: await topic(db) });
+  }
+  if (path === 'settings' && method === 'PUT') {
+    const body = await request.json();
+    const a = body.alerts || {};
+    const clamp = (v, d) => Math.min(100, Math.max(1, Math.round(Number(v)) || d));
+    const alerts = {
+      enabled: !!a.enabled, target_on: !!a.target_on, target_soc: clamp(a.target_soc, 80),
+      done_on: !!a.done_on, low_on: !!a.low_on, low_soc: clamp(a.low_soc, 20),
+    };
+    const price = body.price === null || body.price === '' ? null : Math.max(0, Number(body.price)) || 0;
+    await Promise.all([putSetting(db, 'alerts', alerts), putSetting(db, 'price', price)]);
+    return json({ ok: true, alerts, price });
+  }
+  if (path === 'alert-test' && method === 'POST') {
+    const ok = await sendAlert(await topic(db), { title: 'TrolaSpy test', body: 'Alerts from Trola will arrive like this.', tags: ['wave'] })
+      .catch(() => false);
+    return json({ ok }, ok ? 200 : 502);
+  }
+
+  if (path === 'health' && method === 'GET') {
+    await ensureDays(db);
+    const { results } = await db.prepare(
+      'SELECT day, soh, hx, ahr FROM daily WHERE soh IS NOT NULL OR hx IS NOT NULL ORDER BY day').all();
+    const today = await db.prepare(
+      `SELECT AVG(NULLIF(soh, 0)) AS soh, AVG(NULLIF(hx, 0)) AS hx, AVG(NULLIF(ahr, 0)) AS ahr
+         FROM readings WHERE ts >= ?`).bind(Math.floor(Date.now() / 864e5) * 864e5).first();
+    if (today && today.soh) results.push({ day: new Date().toISOString().slice(0, 10), ...today });
+    return json({ days: results });
+  }
+
+  if (path === 'data' && method === 'GET') {
+    const row = await db.prepare('SELECT COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last FROM readings').first();
+    return json(row);
+  }
+  if (path === 'export' && method === 'GET') {
+    const after = Number(url.searchParams.get('after')) || 0;
+    const { results } = await db.prepare(`SELECT ${COLUMNS.join(', ')} FROM readings WHERE ts > ? ORDER BY ts LIMIT ?`)
+      .bind(after, EXPORT_PAGE).all();
+    return json({ columns: COLUMNS, rows: results.map((r) => COLUMNS.map((c) => r[c])), more: results.length === EXPORT_PAGE });
+  }
+  if (path === 'import' && method === 'POST') {
+    const { columns, rows } = await request.json();
+    if (!Array.isArray(columns) || !Array.isArray(rows) || rows.length > IMPORT_MAX) return json({ error: 'Bad import chunk.' }, 400);
+    const idx = COLUMNS.map((c) => columns.indexOf(c));
+    if (idx[COLUMNS.indexOf('ts')] < 0) return json({ error: 'The file has no ts column.' }, 400);
+    const num = (v) => (v === null || v === '' || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+    const stmt = db.prepare(`INSERT OR REPLACE INTO readings (${COLUMNS.join(', ')}) VALUES (${COLUMNS.map(() => '?').join(', ')})`);
+    const good = rows.filter((r) => Array.isArray(r) && num(r[idx[0]]) > 0);
+    if (good.length) await db.batch(good.map((r) => stmt.bind(...idx.map((i) => (i < 0 ? null : num(r[i]))))));
+    const tss = good.map((r) => num(r[idx[0]]));
+    if (tss.length) await forgetDays(db, Math.min(...tss), Math.max(...tss));
+    return json({ imported: good.length });
+  }
+  if (path === 'delete' && method === 'POST') {
+    const { from, to } = await request.json();
+    if (!(Number(from) > 0) || !(Number(to) > Number(from))) return json({ error: 'Pick a valid date range.' }, 400);
+    const res = await db.prepare('DELETE FROM readings WHERE ts >= ? AND ts < ?').bind(from, to).run();
+    await db.prepare('DELETE FROM charges WHERE start_ts < ? AND end_ts >= ?').bind(to, from).run();
+    await forgetDays(db, from, to - 1);
+    return json({ deleted: res.meta.changes });
+  }
+  if (path === 'reindex' && method === 'POST') {
+    // After a restore: store charging sessions found in the restored readings.
+    return json({ charges: await archiveSessions(db) });
+  }
+  return json({ error: 'Not found' }, 404);
+}

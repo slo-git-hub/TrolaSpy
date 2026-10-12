@@ -16,7 +16,12 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   roughly 2 MB a day even with nonstop 10 s uploads).
 - **`web/`** – the map page (Leaflet + OpenStreetMap) and its small JSON API
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
-- **`schema.sql`** – the D1 tables (readings, photos, charges).
+- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings).
+- **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
+  through the free [ntfy](https://ntfy.sh) app (charged to X %, charging finished, battery low),
+  battery health over time (daily SOH / Hx / AHr), and backup (CSV download), restore and
+  delete of readings. Day summaries live in the `daily` table (`shared/stats.js`); alert
+  rules run on each upload in the ingest Worker (`shared/alerts.js`).
 - **`shared/charges.js`** – charging sessions worked out from readings (charging readings
   less than 15 min apart form one session; energy is pack volts × amps over time, so add-on
   chargers count). The daily job copies finished sessions into `charges` before old readings
