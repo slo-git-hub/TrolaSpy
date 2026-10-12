@@ -56,6 +56,23 @@ async function track(env, hours) {
   return { since, bucketMs, points: results };
 }
 
+// Victron solar charger and DC-DC charger: newest values, a time series for the chart, and
+// the solar yield per day (the charger's own "today" total, taken while the sun is on the panels,
+// since it only resets when they wake up the next morning).
+async function solar(env, hours) {
+  const now = Date.now(), since = now - hours * 3600e3;
+  const bucketMs = Math.max(60_000, Math.ceil((hours * 3600e3) / 600));
+  const one = (kind) => env.DB.prepare('SELECT * FROM victron WHERE kind = ? ORDER BY ts DESC LIMIT 1').bind(kind).first();
+  const [sol, dcdc, pts, days] = await Promise.all([
+    one('solar'), one('dcdc'),
+    env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(pv_w)) AS pv_w, ROUND(AVG(batt_v), 2) AS batt_v
+                      FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / ? ORDER BY ts`).bind(since, bucketMs).all(),
+    env.DB.prepare(`SELECT ts / 86400000 AS d, MAX(yield_wh) AS wh FROM victron
+                     WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? GROUP BY d ORDER BY d`).bind(now - 30 * 864e5).all(),
+  ]);
+  return { solar: sol, dcdc, points: pts.results, days: days.results.map((r) => ({ day: dayKey(r.d * 864e5), wh: r.wh })) };
+}
+
 async function stats(env, hours) {
   const since = Date.now() - hours * 3600 * 1000;
   return { since, ...(await rangeStats(env.DB, since)) };
@@ -117,6 +134,10 @@ export default {
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await track(env, hours));
+    }
+    if (url.pathname === '/api/solar') {
+      const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
+      return json(await solar(env, hours));
     }
     if (url.pathname === '/api/stats') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));

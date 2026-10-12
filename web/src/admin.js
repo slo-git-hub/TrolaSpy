@@ -1,4 +1,4 @@
-// Admin-only API: alert and public-page settings, battery health, and backup / restore / delete of readings.
+// Admin-only API: alert, public-page and Victron settings, battery health, and backup / restore / delete of readings.
 import { COLUMNS } from '../../ingest/src/parse.js';
 import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared/alerts.js';
 import { createVapidKeys } from '../../shared/push.js';
@@ -25,6 +25,10 @@ async function vapid(db, url) {
 const publicUrl = (env, url) => env.PUBLIC_URL
   || (url.hostname.endsWith('.workers.dev') ? `https://${url.hostname.replace(/^[^.]+/, 'trola')}/` : null);
 
+// Where LeafSpy and the Bridge app upload: the "trolaspy-ingest" Worker next to this one (or INGEST_URL).
+const ingestUrl = (env, url) => env.INGEST_URL
+  || (url.hostname.endsWith('.workers.dev') ? `https://${url.hostname.replace(/^[^.]+/, 'trolaspy-ingest')}` : null);
+
 // Total size of the photo files in R2 (photo + thumbnail each). Each list call is a
 // subrequest, and a free-plan Worker may make 50, so very large buckets are only counted in part.
 async function photoBytes(bucket) {
@@ -48,10 +52,11 @@ export async function handleAdmin(request, env, url) {
   const method = request.method;
 
   if (path === 'settings' && method === 'GET') {
-    const s = await getSettings(db, ['alerts', 'price', 'push_subs']);
+    const s = await getSettings(db, ['alerts', 'price', 'push_subs', 'victron', 'bridge']);
     return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null,
       push_key: (await vapid(db, url)).publicKey, devices: devices(s.push_subs),
-      public: await publicSettings(db), public_url: publicUrl(env, url) });
+      public: await publicSettings(db), public_url: publicUrl(env, url),
+      victron: { solar: '', dcdc: '', ...(s.victron || {}) }, bridge: s.bridge || null, ingest_url: ingestUrl(env, url) });
   }
   if (path === 'settings' && method === 'PUT') {
     const body = await request.json();
@@ -74,6 +79,16 @@ export async function handleAdmin(request, env, url) {
     };
     await putSetting(db, 'public', cfg);
     return json({ public: cfg });
+  }
+  if (path === 'victron' && method === 'PUT') {
+    const b = await request.json();
+    const key = (v) => String(v || '').replace(/\s+/g, '').toLowerCase();
+    const keys = { solar: key(b.solar), dcdc: key(b.dcdc) };
+    for (const k of Object.values(keys)) {
+      if (k && !/^[0-9a-f]{32}$/.test(k)) return json({ error: 'A key is 32 characters: digits 0-9 and letters a-f.' }, 400);
+    }
+    await putSetting(db, 'victron', keys);
+    return json({ victron: keys });
   }
   if (path === 'push-subscribe' && method === 'POST') {
     const { subscription: sub, label } = await request.json();

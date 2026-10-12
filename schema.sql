@@ -77,3 +77,20 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- Victron solar charger and DC-DC charger, from their Bluetooth broadcasts (TrolaSpy Bridge app).
+-- A row is kept when something changed, or every 15 minutes when nothing did.
+CREATE TABLE IF NOT EXISTS victron (
+  kind       TEXT NOT NULL,     -- 'solar' or 'dcdc'
+  ts         INTEGER NOT NULL,  -- ms since epoch
+  state      INTEGER,           -- charge stage (VE.Direct device state)
+  error      INTEGER,
+  batt_v     REAL,              -- solar: leisure battery volts, charge amps, panel watts, today's yield
+  batt_a     REAL,
+  pv_w       INTEGER,
+  yield_wh   INTEGER,
+  in_v       REAL,              -- DC-DC: input (van battery) and output volts, why it's off
+  out_v      REAL,
+  off_reason INTEGER,
+  PRIMARY KEY (kind, ts)
+);

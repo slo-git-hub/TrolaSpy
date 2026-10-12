@@ -21,7 +21,15 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   (a 5 km or 1.5 km grid cell, `shared/public.js`), on the road / parked / charging, km totals
   and optionally the photo pins, optionally some hours late. Blank until switched on in the
   admin card's Public tab. Must stay outside Cloudflare Access.
-- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings).
+- **`bridge/`** – TrolaSpy Bridge, a small Android app for the same tablet. It listens for the
+  Victron SmartSolar and Orion Smart chargers' Bluetooth "Instant readout" broadcasts (no
+  connection, so VictronConnect keeps working) and POSTs the newest one from each to
+  `trolaspy-ingest/bridge` once a minute, logged in with LeafSpy's ID/password. The broadcasts
+  are encrypted; the keys are saved in the admin card's Solar tab and `shared/victron.js` reads
+  them. Readings go to the `victron` table (a row when something changes, else every 15 min)
+  and show in the Solar card. Built by `.github/workflows/bridge.yml` and published as the
+  latest GitHub release (`trolaspy-bridge.apk`); its signing key is kept in R2 (`private/`).
+- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings, victron).
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
   as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the
   admin card; charged to X %, charging finished, battery low),

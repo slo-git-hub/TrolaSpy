@@ -26,14 +26,14 @@
     --accent: #04a4d8; --accent-ink: #0a6f96; --accent-soft: #d5eef8;
     --batt: #6f9e2f; --charge: #c27c0e; --charge-soft: #fbedc9; --off: #e3ecee;
     --shadow: 0 8px 30px rgba(23,80,100,.14);
-    --s-bat: #c27c0e; --s-amb: #0a8fc4;
+    --s-bat: #c27c0e; --s-amb: #0a8fc4; --s-solar: #d29a00;
   }
   :root[data-theme="dark"] { --bg: #0b1a20; --card: rgba(17,36,44,.93); --solid: #132932; --text: #e3f0f3;
       --muted: #9db6bf; --faint: #66808a; --line: #23404b; --navy: #cfe7ee;
       --accent: #2fc0f0; --accent-ink: #5fd0f5; --accent-soft: #10394a;
       --batt: #a4ce50; --charge: #f5c04a; --charge-soft: #3b2e0e; --off: #1b3540;
       --shadow: 0 8px 30px rgba(0,0,0,.45);
-      --s-bat: #c2841c; --s-amb: #1a9ccc; }
+      --s-bat: #c2841c; --s-amb: #1a9ccc; --s-solar: #f2c94c; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 15px/1.4 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -123,6 +123,18 @@
   .seg.nav button { min-width: 34px; font-size: 16px; line-height: 1; }
   .seg.nav button:disabled { opacity: .35; cursor: default; }
   .mstats { margin-bottom: 12px; }
+  #solarstats { margin-bottom: 8px; }
+  .regen.solarstate { margin: 0 0 12px; }
+  .solarhead { margin: 0 0 4px; }
+  .solarhead .legend { margin: 0; }
+  .legend.solardays { margin-top: 12px; }
+  #solardays .bar { fill: var(--s-solar); }
+  #solardays .bar.on { fill: var(--charge); }
+  .adm input.key { width: 100%; max-width: 330px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--solid); color: var(--text); }
+  .adm .heard { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .adm .heard .ok { color: var(--batt); font-weight: 600; }
+  .adm .heard .no { color: var(--charge); font-weight: 600; }
   .adm { display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
   .adm[hidden] { display: none; }
   .adm .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -333,6 +345,19 @@
     <div id="chargelist"></div>
   </section>
 
+  <section class="card" id="solarcard" hidden>
+    <div class="chart-head"><h2>Solar &amp; leisure battery</h2><span class="sub" id="solarsub"></span></div>
+    <div class="stats" id="solarstats"></div>
+    <div class="regen solarstate" id="solarstate"></div>
+    <div class="chart-head solarhead">
+      <div class="legend" id="solarlegend"></div>
+      <div class="seg" id="solarmetric"><button data-k="pv_w" class="active">Solar</button><button data-k="batt_v">Battery</button></div>
+    </div>
+    <div class="chart" id="solarchart"></div>
+    <div class="legend solardays"><span>Solar per day, last 30 days</span></div>
+    <div class="chart" id="solardays"></div>
+  </section>
+
   <section class="card">
     <div class="chart-head">
       <div class="seg" id="metric">
@@ -372,7 +397,7 @@
   <section class="card" id="admincard" hidden>
     <div class="chart-head">
       <h2>Admin</h2>
-      <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button><button data-t="public">Public</button></div>
+      <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button><button data-t="public">Public</button><button data-t="victron">Solar</button></div>
     </div>
     <div class="adm" id="adm-alerts">
       <label class="row"><input type="checkbox" id="al-enabled"><b>Send alerts</b></label>
@@ -396,6 +421,18 @@
       <label class="row"><input type="checkbox" id="pb-photos">Photo pins</label>
       <div class="note">Photo pins sit on the exact spot where each photo was taken. With a delay, newer photos wait too.</div>
       <div class="btns"><button class="btn primary" id="pb-save">Save</button><span class="msg" id="pb-msg"></span></div>
+    </div>
+    <div class="adm" id="adm-victron" hidden>
+      <div class="note">The solar charger and the DC-DC charger send their readings over Bluetooth. The TrolaSpy Bridge app
+        on the tablet passes them on. <a href="https://github.com/slo-git-hub/TrolaSpy/releases/latest/download/trolaspy-bridge.apk">Download the app</a>.
+        In the app, enter the server <b id="vk-server">…</b> and LeafSpy's user name and password.</div>
+      <div class="note">Each charger encrypts its readings. To get its key, open it in VictronConnect, tap the gear icon, then
+        Product info. Turn on Instant readout via Bluetooth, then tap Show next to Instant readout details and copy the encryption key.</div>
+      <label>Solar charger key<br><input class="key" type="text" id="vk-solar" maxlength="40" spellcheck="false" autocomplete="off" placeholder="32 characters"></label>
+      <label>DC-DC charger key<br><input class="key" type="text" id="vk-dcdc" maxlength="40" spellcheck="false" autocomplete="off" placeholder="32 characters"></label>
+      <div class="btns"><button class="btn primary" id="vk-save">Save</button><span class="msg" id="vk-msg"></span></div>
+      <h3>What the tablet hears</h3>
+      <div class="heard" id="vk-heard"></div>
     </div>
     <div class="adm" id="adm-health" hidden>
       <div class="chart-head" style="margin:0"><span class="note" id="hl-sum"></span>
@@ -672,6 +709,7 @@ $('range').addEventListener('click', (e) => {
   hours = Number(h);
   document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('active', b === e.target));
   refresh(true).then(() => { if (trackLine.getLatLngs().length > 1) map.fitBounds(trackLine.getBounds(), fitOpts()); });
+  loadSolar();
 });
 $('metric').addEventListener('click', (e) => {
   const m = e.target.dataset && e.target.dataset.m;
@@ -991,16 +1029,18 @@ function barChart(el, slots, { value, tip }) {
 }
 
 // One series over days, with a crosshair tooltip. pts: [{ t, v }]
-function lineChart(el, pts, { color, unit, digits }) {
-  if (pts.length < 2) { el.innerHTML = '<div class="empty">Not enough days yet. This fills in one point a day.</div>'; return; }
+function lineChart(el, pts, { color, unit, digits, empty = 'Not enough days yet. This fills in one point a day.', times = false, zero = false }) {
+  if (pts.length < 2) { el.innerHTML = `<div class="empty">${empty}</div>`; return; }
   const W = el.clientWidth, H = el.clientHeight, L0 = 34, B = 16, T = 6;
   const vals = pts.map((p) => p.v), span = Math.max(...vals) - Math.min(...vals);
   const pad = Math.max(span * 0.2, Math.abs(Math.max(...vals)) * 0.01, 0.5);
-  const lo = Math.floor(Math.min(...vals) - pad), hi = Math.ceil(Math.max(...vals) + pad);
+  const lo = zero ? 0 : Math.floor(Math.min(...vals) - pad), hi = zero ? niceMax(Math.max(...vals)) : Math.ceil(Math.max(...vals) + pad);
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
   const x = (t) => L0 + ((t - t0) / Math.max(1, t1 - t0)) * (W - L0 - 4);
   const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-  const fmtT = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: t1 - t0 > 300 * DAY_MS ? '2-digit' : undefined });
+  const short = times && t1 - t0 < 1.5 * DAY_MS;
+  const fmtT = (t) => (short ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: t1 - t0 > 300 * DAY_MS ? '2-digit' : undefined }));
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
     ${[lo, (lo + hi) / 2, hi].map((v) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="0" y="${y(v) + 3}">${+v.toFixed(1)}</text>`).join('')}
     <path class="line" stroke="var(${color})" d="${pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('')}"/>
@@ -1015,7 +1055,7 @@ function lineChart(el, pts, { color, unit, digits }) {
     const px = x(best.t);
     cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
     dot.setAttribute('cx', px); dot.setAttribute('cy', y(best.v)); dot.setAttribute('visibility', 'visible');
-    tipEl.textContent = `${best.v.toFixed(digits)}${unit} · ${new Date(best.t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    tipEl.textContent = `${best.v.toFixed(digits)}${unit} · ${times ? fmtDate(best.t) : new Date(best.t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
     tipEl.style.display = 'block';
     const half = tipEl.offsetWidth / 2; tipEl.style.left = `${Math.min(Math.max(px, half), W - half)}px`;
   };
@@ -1023,6 +1063,58 @@ function lineChart(el, pts, { color, unit, digits }) {
   hit.addEventListener('pointerdown', (e) => show(e.clientX));
   hit.addEventListener('pointerleave', () => { tipEl.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); });
 }
+
+// ---------- Solar and leisure battery (Victron, through the TrolaSpy Bridge app) ----------
+const VSTATE = { 0: 'Off', 1: 'Low power', 2: 'Fault', 3: 'Bulk', 4: 'Absorption', 5: 'Float', 6: 'Storage', 7: 'Equalize',
+  245: 'Starting up', 246: 'Repeated absorption', 247: 'Recondition', 248: 'Battery safe', 249: 'Active', 252: 'External control' };
+const VOFF = { 0x01: 'No input', 0x02: 'Switched off', 0x04: 'Switched off', 0x08: 'Remote off', 0x10: 'Protection',
+  0x40: 'BMS', 0x80: 'Engine off', 0x100: 'Checking input' };
+const offText = (bits) => [...new Set(Object.entries(VOFF).filter(([b]) => bits & Number(b)).map(([, t]) => t))].join(', ');
+const wh = (v) => (v === null || v === undefined ? '–' : v >= 1000 ? `${n(v / 1000, 2)}<small>kWh</small>` : `${Math.round(v)}<small>Wh</small>`);
+let solarData = null, solarKey = 'pv_w';
+
+async function loadSolar() {
+  try { solarData = await fetch(`/api/solar?hours=${hours}`).then((r) => r.json()); } catch { return; }
+  renderSolar();
+}
+function renderSolar() {
+  const d = solarData; if (!d) return;
+  $('solarcard').hidden = !d.solar && !d.dcdc;
+  if ($('solarcard').hidden) return;
+  const s = d.solar || {}, c = d.dcdc || {};
+  const newest = Math.max(s.ts || 0, c.ts || 0);
+  $('solarsub').textContent = newest ? `Updated ${ago(newest)}` : '';
+  const today = d.days.find((x) => x.day === new Date().toISOString().slice(0, 10));
+  const items = [
+    ['Solar now', n(s.pv_w), 'W'],
+    ['Solar today', today ? wh(today.wh) : wh(s.yield_wh), ''],
+    ['Leisure battery', n(s.batt_v, 2), 'V'],
+    ['Van battery', n(c.in_v, 2), 'V'],
+  ];
+  $('solarstats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}${u ? `<small>${u}</small>` : ''}</b></div>`).join('');
+  const parts = [];
+  if (s.ts) parts.push(`Solar charger <b>${VSTATE[s.state] || 'Unknown'}</b>${s.batt_a > 0 ? `, ${n(s.batt_a, 1)} A into the battery` : ''}`);
+  if (c.ts) parts.push(c.state ? `DC-DC charger <b>${VSTATE[c.state] || 'On'}</b>${c.out_v ? `, ${n(c.out_v, 2)} V out` : ''}`
+    : `DC-DC charger <b>off</b>${offText(c.off_reason) ? `: ${offText(c.off_reason).toLowerCase()}` : ''}`);
+  $('solarstate').innerHTML = parts.join(' · ');
+  const cfg = { pv_w: { color: '--s-solar', unit: ' W', digits: 0, name: 'Solar power', zero: true }, batt_v: { color: '--batt', unit: ' V', digits: 2, name: 'Leisure battery' } }[solarKey];
+  $('solarlegend').innerHTML = `<span><i style="background:var(${cfg.color})"></i>${cfg.name}</span>`;
+  const pts = d.points.filter((p) => p[solarKey] !== null).map((p) => ({ t: p.ts, v: p[solarKey] }));
+  lineChart($('solarchart'), pts, { ...cfg, times: true, empty: 'No readings in this time range yet.' });
+  const days = Array.from({ length: 30 }, (_, i) => {
+    const key = new Date(Date.now() - (29 - i) * DAY_MS).toISOString().slice(0, 10);
+    return { key, label: fmtDay(key), wh: (d.days.find((x) => x.day === key) || {}).wh || 0 };
+  });
+  barChart($('solardays'), days, { value: (x) => x.wh, tip: (x) => `${x.label}: ${x.wh >= 1000 ? `${n(x.wh / 1000, 2)} kWh` : `${x.wh} Wh`}` });
+}
+$('solarmetric').addEventListener('click', (e) => {
+  const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+  solarKey = k; document.querySelectorAll('#solarmetric button').forEach((b) => b.classList.toggle('active', b === e.target));
+  renderSolar();
+});
+addEventListener('resize', renderSolar);
+loadSolar();
+setInterval(loadSolar, 60000);
 
 // ---------- Monthly summary ----------
 let month = new Date().toISOString().slice(0, 7), monthData = null;
@@ -1085,7 +1177,8 @@ function openAdmin() {
 $('admtab').addEventListener('click', (e) => {
   const t = e.target.dataset && e.target.dataset.t; if (!t) return;
   document.querySelectorAll('#admtab button').forEach((b) => b.classList.toggle('active', b === e.target));
-  ['alerts', 'health', 'data', 'public'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
+  ['alerts', 'health', 'data', 'public', 'victron'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
+  if (t === 'victron') loadSettings();
   if (t === 'health') loadHealth();
   if (t === 'data') loadDataInfo();
 });
@@ -1097,8 +1190,33 @@ async function loadSettings() {
     $('al-done').checked = s.alerts.done_on; $('al-low').checked = s.alerts.low_on; $('al-low-soc').value = s.alerts.low_soc;
     $('al-price').value = s.price ?? ''; pushKey = s.push_key; pushDevices = s.devices; showPush();
     showPublic(s.public, s.public_url);
+    $('vk-server').textContent = s.ingest_url || 'address of your trolaspy-ingest Worker';
+    $('vk-solar').value = s.victron.solar; $('vk-dcdc').value = s.victron.dcdc; showHeard(s.bridge, s.victron);
   } catch (e) { say('al-msg', e.message); }
 }
+
+// What the Bridge app last reported hearing, and whether the saved keys read it.
+function showHeard(b, keys) {
+  const el = $('vk-heard');
+  if (!b) { el.innerHTML = '<span>Nothing yet. Install the app on the tablet and enter the server details.</span>'; return; }
+  const names = { solar: 'Solar charger', dcdc: 'DC-DC charger' };
+  const rows = b.devices.map((d) => {
+    const label = esc(d.name || d.mac || 'Victron device');
+    const what = names[d.kind] ? ` (${names[d.kind]})` : d.kind === 'unknown' ? '' : ` (${esc(d.kind)}, not shown here)`;
+    const status = !names[d.kind] ? '' : d.read ? '<span class="ok">reading OK</span>'
+      : keys[d.kind] ? '<span class="no">the key doesn\'t fit</span>' : '<span class="no">needs its key</span>';
+    return `<span>${label}${what}${status ? ` · ${status}` : ''} · heard ${ago(d.heard_ts)}</span>`;
+  });
+  el.innerHTML = `<span>App last checked in ${ago(b.ts)}${b.app ? ` (${esc(b.app)})` : ''}.</span>`
+    + (rows.length ? rows.join('') : '<span>It hears no Victron devices. Is Bluetooth on, and is the tablet near them?</span>');
+}
+$('vk-save').addEventListener('click', async () => {
+  say('vk-msg', 'Saving…');
+  try {
+    await api('victron', { method: 'PUT', body: JSON.stringify({ solar: $('vk-solar').value, dcdc: $('vk-dcdc').value }) });
+    say('vk-msg', 'Saved. Readings show up within a couple of minutes.');
+  } catch (e) { say('vk-msg', e.message); }
+});
 
 function showPublic(p, link) {
   $('pb-enabled').checked = p.enabled; $('pb-detail').value = p.detail; $('pb-delay').value = String(p.delay_h);

@@ -2,6 +2,7 @@ import { archiveSessions } from '../../shared/charges.js';
 import { ensureDays } from '../../shared/stats.js';
 import { checkAlerts, checkQuietCharge } from '../../shared/alerts.js';
 import { parseReading, COLUMNS } from './parse.js';
+import { handleBridge } from './bridge.js';
 
 const LEAFSPY_OK = '"status":"0"';
 const DAILY_CRON = '17 3 * * *'; // as in wrangler.toml
@@ -18,12 +19,29 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
+const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+
+// The TrolaSpy Bridge app logs in with LeafSpy's user name and password (HTTP Basic).
+async function bridge(request, env) {
+  if (request.method !== 'POST') return json({ error: 'POST only' }, 405);
+  if (!env.LEAFSPY_USER || !env.LEAFSPY_PASS) return json({ error: 'Server not configured' }, 500);
+  const [user, pass] = (() => {
+    try { return atob((request.headers.get('Authorization') || '').replace(/^Basic\s+/i, '')).split(/:(.*)/s); } catch { return []; }
+  })();
+  if (!safeEqual(user, env.LEAFSPY_USER) || !safeEqual(pass, env.LEAFSPY_PASS)) return json({ error: 'Wrong user name or password' }, 403);
+  const body = await request.json().catch(() => null);
+  if (!body) return json({ error: 'Bad body' }, 400);
+  return json(await handleBridge(env.DB, body));
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== 'GET' && request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
-    const params = new URL(request.url).searchParams;
+    const url = new URL(request.url);
+    if (url.pathname === '/bridge') return bridge(request, env);
+    const params = url.searchParams;
     if (!params.has('user')) {
       return new Response('TrolaSpy ingest is running.\n', { headers: { 'content-type': 'text/plain' } });
     }

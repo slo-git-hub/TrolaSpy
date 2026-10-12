@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The GitHub workflow sets VERSION_CODE (its run number) and the signing key, kept private in R2,
+// so every build installs over the last one. A local build is signed with the debug key.
+def versionCodeEnv = (System.getenv('VERSION_CODE') ?: '1') as int
+def keystore = System.getenv('BRIDGE_KEYSTORE')
+
+android {
+    namespace 'com.trolaspy.bridge'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.trolaspy.bridge'
+        minSdk 26
+        targetSdk 34
+        versionCode versionCodeEnv
+        versionName "1.${versionCodeEnv}"
+    }
+
+    signingConfigs {
+        release {
+            if (keystore) {
+                storeFile file(keystore)
+                storeType 'pkcs12'
+                storePassword System.getenv('BRIDGE_KEYSTORE_PASS')
+                keyAlias 'bridge'
+                keyPassword System.getenv('BRIDGE_KEYSTORE_PASS')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}

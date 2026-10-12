@@ -1,0 +1,73 @@
+name: Bridge app
+
+# Builds the TrolaSpy Bridge Android app and publishes it as the latest GitHub release
+# (download: releases/latest/download/trolaspy-bridge.apk). The signing key is made on the
+# first build and kept private in the R2 bucket, so each new version installs over the last.
+
+on:
+  push:
+    branches: [main]
+    paths: ['bridge/**', '.github/workflows/bridge.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+
+      - name: Signing key
+        run: |
+          set -euo pipefail
+          KS="$RUNNER_TEMP/bridge.p12"; J="$RUNNER_TEMP/ks.json"; OBJ=trolaspy-photos/private/bridge-keystore.json
+          if out=$(npx wrangler r2 object get "$OBJ" --file "$J" --remote 2>&1); then
+            PASS=$(jq -r .pass "$J"); echo "::add-mask::$PASS"
+            jq -r .keystore "$J" | base64 -d > "$KS"
+            echo "Using the saved signing key."
+          elif echo "$out" | grep -qiE "does not exist|not found|NoSuchKey|404"; then
+            PASS=$(openssl rand -hex 24); echo "::add-mask::$PASS"
+            keytool -genkeypair -keystore "$KS" -storetype pkcs12 -storepass "$PASS" -keypass "$PASS" -alias bridge \
+              -keyalg RSA -keysize 3072 -validity 20000 -dname "CN=TrolaSpy Bridge" >/dev/null
+            jq -n --arg k "$(base64 -w0 "$KS")" --arg p "$PASS" '{keystore: $k, pass: $p}' > "$J"
+            npx wrangler r2 object put "$OBJ" --file "$J" --content-type application/json --remote >/dev/null
+            echo "Made a new signing key and saved it."
+          else
+            echo "$out" | tail -5
+            echo "::error::Could not read the signing key from R2."
+            exit 1
+          fi
+          rm -f "$J"
+          echo "BRIDGE_KEYSTORE=$KS" >> "$GITHUB_ENV"
+          echo "BRIDGE_KEYSTORE_PASS=$PASS" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: bridge
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+        run: gradle --no-daemon --stacktrace assembleRelease
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp bridge/app/build/outputs/apk/release/app-release.apk trolaspy-bridge.apk
+          gh release create "bridge-1.${{ github.run_number }}" trolaspy-bridge.apk --target "$GITHUB_SHA" --latest \
+            --title "TrolaSpy Bridge 1.${{ github.run_number }}" \
+            --notes "Android app for the tablet: passes the Victron chargers' Bluetooth readings on to TrolaSpy. Install trolaspy-bridge.apk below."
