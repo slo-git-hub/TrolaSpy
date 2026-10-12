@@ -77,6 +77,9 @@
   .tile span { display: block; color: var(--muted); font-size: 12px; }
   .tile b { font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 600; }
   .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .tile.wide { grid-column: 1 / -1; }
+  .tile[hidden] { display: none; }
+  .about { color: var(--muted); font-size: 12px; margin-top: 10px; }
 
   .card h3 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; }
   .card h3 span { color: var(--muted); font-weight: 400; font-size: 12px; }
@@ -155,7 +158,9 @@
     <div class="tiles">
       <div class="tile"><span>This month</span><b id="month">–</b></div>
       <div class="tile"><span>Odometer, all electric</span><b id="odo">–</b></div>
+      <div class="tile wide" id="co2tile" hidden><span>CO₂ saved compared with a diesel van, roughly</span><b id="co2">–</b></div>
     </div>
+    <div class="about">Trola is a 2018 Nissan e&#8209;NV200 with a 40 kWh battery.</div>
   </section>
 
   <section class="card" id="photocard" hidden>
@@ -297,7 +302,9 @@ async function refresh() {
     ? `Seen ${ago(d.seen_ts)}${d.delay_h ? `. This page runs ${d.delay_h} h behind.` : ''}` : '';
   $('month').innerHTML = km(d.month_km);
   $('odo').innerHTML = km(d.odo_km);
-  $('totals').hidden = d.month_km === null && d.odo_km === null;
+  $('co2tile').hidden = !d.co2_kg;
+  $('co2').innerHTML = d.co2_kg >= 1000 ? `${(d.co2_kg / 1000).toFixed(1)}<small>t</small>` : `${d.co2_kg}<small>kg</small>`;
+  $('totals').hidden = false;
   showPhotos(d.photos || []);
 }
 refresh();

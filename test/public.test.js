@@ -25,3 +25,11 @@ test('nearby spots in the same cell give the same area', () => {
   assert.deepEqual(a, b);
   assert.equal(a.radius_m, 3750);
 });
+
+test('CO₂ saved grows with distance and starts at zero', async () => {
+  const { co2SavedKg, CO2_SAVED_G_PER_KM } = await import('../shared/co2.js');
+  assert.equal(co2SavedKg(0), 0);
+  assert.equal(co2SavedKg(null), null);
+  assert.equal(co2SavedKg(1000), Math.round(CO2_SAVED_G_PER_KM));
+  assert.ok(CO2_SAVED_G_PER_KM > 50 && CO2_SAVED_G_PER_KM < 160);
+});

@@ -206,6 +206,10 @@
   .btn.danger { background: #b4232a; color: #fff; }
   .btn:disabled { opacity: .5; cursor: default; }
   .btn[hidden] { display: none; }
+  .lightbox .capedit { display: flex; gap: 6px; width: min(560px, calc(100vw - 32px)); margin: 0 auto 4px; }
+  .lightbox .capedit[hidden] { display: none; }
+  .lightbox .capedit input { flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 8px 10px;
+    font: inherit; background: rgba(255,255,255,.1); color: #fff; }
   .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
 
   .uploader { position: fixed; z-index: 1500; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(440px, calc(100% - 24px));
@@ -259,8 +263,11 @@
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
   <button class="btn close" id="lbclose" aria-label="Close">✕</button>
   <img id="lbimg" alt="">
-  <div class="meta"><div id="lbcaption"></div><small id="lbdate"></small></div>
-  <div class="row"><button class="btn" id="lbgo">Show on map</button><button class="btn danger" id="lbdelete" hidden>Delete</button></div>
+  <div class="meta"><div id="lbcaption"></div>
+    <form class="capedit" id="lbcapform" hidden><input type="text" id="lbcapinput" placeholder="Caption" maxlength="500">
+      <button class="btn primary">Save</button><button class="btn" type="button" id="lbcapcancel">Cancel</button></form>
+    <small id="lbdate"></small></div>
+  <div class="row"><button class="btn" id="lbgo">Show on map</button><button class="btn" id="lbedit" hidden>Caption</button><button class="btn danger" id="lbdelete" hidden>Delete</button></div>
 </div>
 <div class="card uploader" id="uploader">
   <img id="upthumb" alt="">
@@ -347,6 +354,19 @@
     <div class="stats mstats" id="mstats"></div>
     <div class="legend"><span>Distance per day</span></div>
     <div class="chart" id="mchart"></div>
+    <div class="regen" id="mco2"></div>
+  </section>
+
+  <section class="card" id="aboutcard">
+    <div class="chart-head"><h2>About Trola</h2></div>
+    <div class="tiles">
+      <div class="tile"><span>Model · Nissan</span><b>e&#8209;NV200</b></div>
+      <div class="tile"><span>Year</span><b>2018</b></div>
+      <div class="tile"><span>Battery</span><b>40<small>kWh</small></b></div>
+      <div class="tile"><span>CO₂ saved since new</span><b id="co2total">–</b></div>
+    </div>
+    <div class="regen">CO₂ saved is a rough guess: Trola against a diesel van of the same size over the same distance,
+      counting the CO₂ from making Trola's electricity.</div>
   </section>
 
   <section class="card" id="admincard" hidden>
@@ -439,6 +459,7 @@ const ICON = {
 };
 const CHARGE = { 1: 'Charging', 2: 'Charging', 3: 'Fast charging' };
 const n = (v, d = 0) => (v === null || v === undefined ? '–' : Number(v).toFixed(d));
+const co2 = (kg, unit = (u) => `<small>${u}</small>`) => (kg >= 1000 ? `${n(kg / 1000, 1)}${unit('t')}` : `${Math.round(kg)}${unit('kg')}`);
 
 function ago(ts) {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -448,7 +469,7 @@ function ago(ts) {
   return new Date(ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-function renderLatest({ reading: r, lastPosition }) {
+function renderLatest({ reading: r, lastPosition, co2_g_per_km: co2g }) {
   if (!r) { $('updated').textContent = 'No data yet. Waiting for LeafSpy.'; return; }
   const charging = !!CHARGE[r.chrg_mode];
   const stale = Date.now() - r.ts > (charging ? CHARGE_STALE_MS : STALE_MS);
@@ -491,6 +512,7 @@ function renderLatest({ reading: r, lastPosition }) {
     ['Elevation', n(r.elv), 'm'],
   ];
   $('tiles').innerHTML = tiles.map(([k, v, u]) => `<div class="tile"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
+  $('co2total').innerHTML = r.odo && co2g ? co2((r.odo * co2g) / 1000) : '–';
 
   const pos = r.lat !== null ? r : lastPosition;
   if (pos && pos.lat !== null) {
@@ -694,12 +716,43 @@ function openLightbox(ph) {
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = ph.taken_ts ? fmtDate(ph.taken_ts) : `Added ${fmtDate(ph.created_ts)}`;
   $('lbdelete').hidden = !me.admin;
+  $('lbedit').hidden = !me.admin;
+  $('lbedit').textContent = ph.caption ? 'Edit caption' : 'Add caption';
+  editCaption(false);
   $('lightbox').classList.add('open');
 }
 const closeLightbox = () => { $('lightbox').classList.remove('open'); $('lbimg').src = ''; lbPhoto = null; };
+function editCaption(on) {
+  $('lbcapform').hidden = !on;
+  $('lbcaption').hidden = on;
+  $('lbedit').disabled = on;
+  if (on) { $('lbcapinput').value = lbPhoto.caption || ''; $('lbcapinput').focus(); }
+}
+$('lbedit').addEventListener('click', () => editCaption(true));
+$('lbcapcancel').addEventListener('click', () => editCaption(false));
+$('lbcapform').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const ph = lbPhoto, btn = e.submitter || $('lbcapform').querySelector('.primary');
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/photos/${ph.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ caption: $('lbcapinput').value }) });
+    if (!r.ok) throw new Error();
+    ph.caption = (await r.json()).caption;
+    if (lbPhoto === ph) {
+      $('lbcaption').textContent = ph.caption;
+      $('lbedit').textContent = ph.caption ? 'Edit caption' : 'Add caption';
+      editCaption(false);
+    }
+  } catch { alert('Could not save the caption.'); }
+  btn.disabled = false;
+});
 $('lbclose').addEventListener('click', closeLightbox);
 $('lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('lbcapform').hidden) editCaption(false); else closeLightbox();
+});
 $('lbgo').addEventListener('click', () => {
   const ph = lbPhoto; closeLightbox();
   scrollTo({ top: 0, behavior: 'smooth' });
@@ -998,6 +1051,8 @@ function renderMonth() {
     d.price !== null ? ['Cost', n(charged * d.price, 2), '€'] : ['Days out', String(d.days.filter((x) => x.distance_km > 0).length), ''],
   ];
   $('mstats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
+  $('mco2').innerHTML = km >= 1 && d.co2_g_per_km
+    ? `🌱 About <b>${co2((km * d.co2_g_per_km) / 1000, (u) => ` ${u}`)}</b> less CO₂ than a diesel van would have made` : '';
   const len = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
   const byDay = Object.fromEntries(d.days.map((x) => [x.day, x]));
   const slots = Array.from({ length: len }, (_, i) => {

@@ -8,9 +8,10 @@ import { manifest, serviceWorker } from './pwa.js';
 import { listSessions } from '../../shared/charges.js';
 import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js';
 import { getSettings } from '../../shared/alerts.js';
+import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
-import { listPhotos, servePhoto, positionAt, uploadPhoto, deletePhoto } from './photos.js';
+import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
 
 const MAX_HOURS = 30 * 24;
 const MAX_POINTS = 3000;
@@ -21,13 +22,24 @@ const json = (data, status = 200) =>
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 
+// Values only the car itself can give. When it doesn't answer (just after it is switched off)
+// LeafSpy sends nothing or 0 for them, so the last ones it did give are shown instead. Each
+// group comes from the newest reading that has its first value.
+const CAR_FIELDS = [['soc', 'gids', 'bat_temp', 'amb_temp'], ['soh', 'hx', 'ahr'], ['odo']];
+const missing = (k, v) => v === null || v === undefined || (v === 0 && !k.endsWith('_temp'));
+
 async function latest(env) {
   const row = await env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first();
+  for (const group of row ? CAR_FIELDS : []) {
+    if (!group.some((k) => missing(k, row[k]))) continue;
+    const known = await env.DB.prepare(`SELECT ${group.join(', ')} FROM readings WHERE ${group[0]} > 0 ORDER BY ts DESC LIMIT 1`).first();
+    if (known) for (const k of group) if (missing(k, row[k]) && !missing(k, known[k])) row[k] = known[k];
+  }
   // Last known position, in case the newest upload had no GPS fix.
   const pos = row && row.lat === null
     ? await env.DB.prepare('SELECT ts, lat, lon FROM readings WHERE lat IS NOT NULL ORDER BY ts DESC LIMIT 1').first()
     : null;
-  return { reading: row, lastPosition: pos };
+  return { reading: row, lastPosition: pos, co2_g_per_km: CO2_SAVED_G_PER_KM };
 }
 
 async function track(env, hours) {
@@ -61,7 +73,7 @@ async function monthly(env, month) {
     getSettings(env.DB, ['price']),
   ]);
   return { month, days, first_month: first && first.ts ? dayKey(first.ts).slice(0, 7) : month,
-    price: s.price ?? null, pending: added >= 10 };
+    price: s.price ?? null, pending: added >= 10, co2_g_per_km: CO2_SAVED_G_PER_KM };
 }
 
 export default {
@@ -96,6 +108,7 @@ export default {
       if (url.pathname === '/api/position') return positionAt(env, Number(url.searchParams.get('ts')) || Date.now());
       if (url.pathname === '/api/photos' && method === 'POST') return uploadPhoto(request, env, viewer);
       const m = url.pathname.match(/^\/api\/photos\/([0-9a-f-]{36})$/);
+      if (m && method === 'PATCH') return updatePhoto(request, env, m[1]);
       if (m && method === 'DELETE') return deletePhoto(env, m[1]);
       return json({ error: 'Not found' }, 404);
     }

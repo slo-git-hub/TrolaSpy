@@ -1,4 +1,4 @@
-// Photo pins: list, serve, upload and delete. Images are stored in R2 (binding PHOTOS),
+// Photo pins: list, serve, upload, caption and delete. Images are stored in R2 (binding PHOTOS),
 // metadata in D1. The browser resizes photos and makes the thumbnail before uploading.
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -59,6 +59,16 @@ export async function uploadPhoto(request, env, viewer) {
     'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, created_ts, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(row.id, row.taken_ts, row.lat, row.lon, row.source, row.caption, row.width, row.height, row.created_ts, viewer.email).run();
   return json({ photo: row }, 201);
+}
+
+export async function updatePhoto(request, env, id) {
+  if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: 'Bad id.' }, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.caption !== 'string') return json({ error: 'Missing caption.' }, 400);
+  const caption = body.caption.trim().slice(0, 500);
+  const res = await env.DB.prepare('UPDATE photos SET caption = ? WHERE id = ?').bind(caption, id).run();
+  if (!res.meta.changes) return json({ error: 'Not found.' }, 404);
+  return json({ id, caption });
 }
 
 export async function deletePhoto(env, id) {

@@ -3,6 +3,7 @@
 // parked or charging, a few totals, and optionally the photo pins. Optionally everything is
 // shown some hours late. Off until the admin switches it on.
 import { getSettings } from './alerts.js';
+import { co2SavedKg } from './co2.js';
 
 export const DEFAULT_PUBLIC = { enabled: false, detail: 'town', delay_h: 0, photos: true };
 export const DETAIL_KM = { town: 5, area: 1.5 }; // grid cell size
@@ -58,6 +59,7 @@ export async function publicWhere(db, now = Date.now()) {
     area: pos ? roughArea(pos.lat, pos.lon, DETAIL_KM[cfg.detail]) : null,
     odo_km: odo ? odo.odo : null,
     month_km: odo && odoMonth ? odo.odo - odoMonth.odo : null,
+    co2_kg: odo ? co2SavedKg(odo.odo) : null,
     photos,
   };
 }
