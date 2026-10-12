@@ -49,7 +49,10 @@ jobs:
           };
           EOF
           printf 'name = "trolaspy-ntfy-check"\nmain = "worker.js"\ncompatibility_date = "2026-09-01"\nworkers_dev = true\n' > wrangler.toml
-          trap 'npx wrangler delete trolaspy-ntfy-check || true' EXIT
+          # Deleted through the API: wrangler delete also wants KV access, which the token lacks.
+          remove() { curl -sS -X DELETE -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/trolaspy-ntfy-check?force=true" | jq -c '{success, errors}'; }
+          trap remove EXIT
           npx wrangler deploy 2>&1 | tee deploy.log
           URL=$(grep -o 'https://[^ ]*\.workers\.dev' deploy.log | head -1)
           echo "Worker: $URL"
