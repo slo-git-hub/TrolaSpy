@@ -319,6 +319,9 @@
 const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const STALE_MS = 5 * 60 * 1000;
+// While charging with Trola off, LeafSpy may only upload every 7-11 minutes.
+const CHARGE_STALE_MS = 15 * 60 * 1000;
+let liveCharging = false;
 // Keep the route clear of the side panel on wide screens.
 const fitOpts = () => (innerWidth > 760 ? { paddingTopLeft: [420, 40], paddingBottomRight: [40, 40] } : { padding: [40, 40] });
 
@@ -354,8 +357,9 @@ function ago(ts) {
 
 function renderLatest({ reading: r, lastPosition }) {
   if (!r) { $('updated').textContent = 'No data yet. Waiting for LeafSpy.'; return; }
-  const stale = Date.now() - r.ts > STALE_MS;
   const charging = !!CHARGE[r.chrg_mode];
+  const stale = Date.now() - r.ts > (charging ? CHARGE_STALE_MS : STALE_MS);
+  liveCharging = charging && !stale;
   document.querySelectorAll('[data-live]').forEach((el) => {
     el.classList.toggle('on', !stale);
     el.querySelector('span').textContent = stale ? 'Offline' : 'Live';
@@ -743,7 +747,7 @@ const chargeLayer = L.layerGroup().addTo(map);
 const chargerPins = [];
 const cpinIcon = (now) => L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
   html: `<div class="cpin${now ? ' now' : ''}">${ICON.bolt}</div>` });
-const isNow = (s) => Date.now() - s.end_ts < STALE_MS;
+const isNow = (s) => liveCharging && Date.now() - s.end_ts < CHARGE_STALE_MS;
 const dur = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`; };
 const near = (a, b) => Math.abs(a.lat - b.lat) < 0.0014 && Math.abs(a.lon - b.lon) < 0.002;
 
