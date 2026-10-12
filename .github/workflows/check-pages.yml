@@ -20,9 +20,10 @@ jobs:
           for w in trolaspy trolaspy-ingest trola; do
             for path in / /api/latest; do
               url="https://$w.$sub.workers.dev$path"
-              out=$(curl -sS -o body.txt -w '%{http_code} %{redirect_url}' "$url")
-              code=${out%% *}; to=${out#* }
+              # Only status, content type and redirect host: the repo is public, so no page bodies.
+              out=$(curl -sS -o /dev/null -w '%{http_code}|%{content_type}|%{redirect_url}' "$url")
+              IFS='|' read -r code type to <<< "$out"
               host=$(printf '%s' "$to" | sed -E 's#^https?://([^/]+).*#\1#')
-              echo "$w$path -> $code ${host:+(redirects to $host)} $(head -c 80 body.txt | tr '\n' ' ')"
+              echo "$w$path -> $code $type ${host:+(redirects to $host)}"
             done
           done
