@@ -1,0 +1,28 @@
+name: Check who can open the pages
+
+# Manual only. Opens each page from outside without logging in and prints what comes back:
+# the map page must send visitors to the Cloudflare Access login (or refuse them),
+# the public page and the LeafSpy upload address must answer.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Open the pages without logging in
+        run: |
+          sub=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r '.result.subdomain')
+          for w in trolaspy trolaspy-ingest trola; do
+            for path in / /api/latest; do
+              url="https://$w.$sub.workers.dev$path"
+              out=$(curl -sS -o body.txt -w '%{http_code} %{redirect_url}' "$url")
+              code=${out%% *}; to=${out#* }
+              host=$(printf '%s' "$to" | sed -E 's#^https?://([^/]+).*#\1#')
+              echo "$w$path -> $code ${host:+(redirects to $host)} $(head -c 80 body.txt | tr '\n' ' ')"
+            done
+          done
