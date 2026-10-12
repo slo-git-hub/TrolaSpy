@@ -1,0 +1,34 @@
+name: Diagnose readings
+
+# Manual only. Prints aggregate numbers (no positions) to check units from LeafSpy.
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Query
+        run: |
+          q() { echo "== $1"; npx wrangler d1 execute trolaspy --remote --json --command "$2" | jq -c '.[0].results[]'; }
+          SINCE="(strftime('%s','now') - 3*86400) * 1000"
+          q "Driving: speed vs rpm (rows with speed > 3)" \
+            "SELECT COUNT(*) n, ROUND(AVG(speed),1) avg_speed, ROUND(MAX(speed),1) max_speed, ROUND(AVG(rpm*1.0/speed),1) rpm_per_speed FROM readings WHERE ts >= $SINCE AND speed > 3 AND rpm > 0"
+          q "Driving: distance from speed x time vs odometer, per hour" \
+            "WITH r AS (SELECT ts, speed, odo, ts - LAG(ts) OVER (ORDER BY ts) dt FROM readings WHERE ts >= $SINCE)
+             SELECT ts/3600000 % 1000 hr, COUNT(*) n, ROUND(SUM(CASE WHEN dt <= 60000 THEN speed*dt END)/3600000.0, 2) speed_x_time, MAX(odo)-MIN(odo) odo_km
+             FROM r GROUP BY ts/3600000 HAVING odo_km > 0 ORDER BY 1 DESC LIMIT 12"
+          q "Charging, per hour (current going in, car not in drive)" \
+            "SELECT ts/3600000 % 1000 hr, COUNT(*) n, GROUP_CONCAT(DISTINCT chrg_mode) modes, GROUP_CONCAT(DISTINCT plug_state) plug, GROUP_CONCAT(DISTINCT pwr_sw) pwr,
+                    ROUND(AVG(chrg_pwr)) avg_chrg_pwr, ROUND(MAX(chrg_pwr)) max_chrg_pwr,
+                    ROUND(AVG(-bat_volts*bat_amps)) avg_va_in, ROUND(MAX(-bat_volts*bat_amps)) max_va_in, ROUND(MIN(bat_amps),1) min_amps
+             FROM readings WHERE ts >= $SINCE AND (chrg_mode > 0 OR bat_amps < -5) AND COALESCE(speed,0) < 1
+             GROUP BY ts/3600000 ORDER BY 1 DESC LIMIT 24"
