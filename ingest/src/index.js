@@ -1,3 +1,4 @@
+import { archiveSessions } from '../../shared/charges.js';
 import { parseReading, COLUMNS } from './parse.js';
 
 const LEAFSPY_OK = '"status":"0"';
@@ -39,6 +40,7 @@ export default {
   async scheduled(event, env) {
     const days = Number(env.RETENTION_DAYS) || 30;
     const cutoff = Date.now() - days * 24 * 3600 * 1000;
+    await archiveSessions(env.DB); // keep charging sessions before their readings go
     await env.DB.prepare('DELETE FROM readings WHERE ts < ?').bind(cutoff).run();
   },
 };

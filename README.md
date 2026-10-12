@@ -15,7 +15,11 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   30 days once a day.
 - **`web/`** – the map page (Leaflet + OpenStreetMap) and its small JSON API
   (`/api/latest`, `/api/track?hours=24`). Must sit behind Cloudflare Access.
-- **`schema.sql`** – the D1 tables (readings, photos).
+- **`schema.sql`** – the D1 tables (readings, photos, charges).
+- **`shared/charges.js`** – charging sessions worked out from readings (charging readings
+  less than 15 min apart form one session; energy is pack volts × amps over time, so add-on
+  chargers count). The daily job copies finished sessions into `charges` before old readings
+  are deleted, so charger pins and their stats are kept for good.
 - **Photo pins** – the admin uploads photos from the map page; the browser reads EXIF GPS
   (or matches the photo time to Trola's track, or lets you tap the map), shrinks the photo
   to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).

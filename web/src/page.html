@@ -131,6 +131,32 @@
   #theme { bottom: 82px; }
   #addphoto { bottom: 140px; background: var(--accent); color: #fff; border-color: transparent; }
 
+  .cpin { width: 30px; height: 30px; border-radius: 50%; background: var(--charge); color: var(--solid);
+    border: 2px solid var(--solid); box-shadow: 0 3px 10px rgba(0,0,0,.3); display: grid; place-items: center; cursor: pointer; }
+  .cpin svg { width: 16px; height: 16px; }
+  .cpin.now { animation: cpulse 1.6s ease-out infinite; }
+  @keyframes cpulse { 0% { box-shadow: 0 0 0 0 var(--charge); } 100% { box-shadow: 0 0 0 12px transparent; } }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--solid); color: var(--text); box-shadow: var(--shadow); }
+  .leaflet-popup-content-wrapper { border-radius: 14px; }
+  .leaflet-popup-content { margin: 12px 14px; font: inherit; font-size: 13px; width: 250px !important; }
+  .leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+  .chart-head .sub { color: var(--muted); font-size: 12px; }
+  .cpop h3 { margin: 0; font-size: 14px; }
+  .cpop .sub { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .cs { padding: 9px 0; border-top: 1px solid var(--line); }
+  .cs:first-of-type { border-top: 0; }
+  .cs-head { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
+  .cs-head .tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--off); color: var(--muted); }
+  .cs-head .tag.now { background: var(--charge-soft); color: var(--charge); }
+  .cs-grid { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; gap: 8px; margin: 5px 0; }
+  .cs-grid span { display: block; color: var(--muted); font-size: 10px; }
+  .cs-grid b { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .cs-soc { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cs-soc .bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: var(--off); overflow: hidden; }
+  .cs-soc .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--charge); }
+  .cs.link { cursor: pointer; }
+  .cs.link:hover .cs-head { color: var(--accent-ink); }
+  .more { color: var(--muted); font-size: 12px; padding-top: 6px; }
   .pin { width: 40px; height: 40px; border-radius: 10px; border: 2px solid #fff; overflow: hidden; background: var(--off);
     box-shadow: 0 4px 12px rgba(0,0,0,.35); cursor: pointer; transition: transform .15s; }
   .pin:hover { transform: scale(1.12); }
@@ -262,6 +288,11 @@
     </div>
     <div class="stats" id="stats"></div>
     <div class="regen" id="regenbar"></div>
+  </section>
+
+  <section class="card" id="chargecard" hidden>
+    <div class="chart-head"><h2>Charging</h2><span class="sub" id="chargesum"></span></div>
+    <div id="chargelist"></div>
   </section>
 
   <section class="card">
@@ -494,15 +525,22 @@ function renderTrack({ points }) {
   renderChart(points);
 }
 
-async function refresh() {
+// Track and stats are only re-read when a new reading has arrived (keeps D1 reads low).
+let shownTs = null;
+async function refresh(force = false) {
   try {
-    const [latest, track, st] = await Promise.all([
-      fetch('/api/latest').then((r) => r.json()),
-      fetch(`/api/track?hours=${hours}`).then((r) => r.json()),
-      fetch(`/api/stats?hours=${hours}`).then((r) => r.json()),
-    ]);
-    renderTrack(track);
-    renderStats(st);
+    const latest = await fetch('/api/latest').then((r) => r.json());
+    const ts = latest.reading && latest.reading.ts;
+    if (force || ts !== shownTs) {
+      const [track, st] = await Promise.all([
+        fetch(`/api/track?hours=${hours}`).then((r) => r.json()),
+        fetch(`/api/stats?hours=${hours}`).then((r) => r.json()),
+      ]);
+      renderTrack(track);
+      renderStats(st);
+      shownTs = ts;
+      if (Date.now() - chargesLoaded > 60000) loadCharges();
+    }
     renderLatest(latest);
   } catch (e) {
     $('updated').textContent = 'Could not load data. Retrying…';
@@ -514,7 +552,7 @@ $('range').addEventListener('click', (e) => {
   if (!h) return;
   hours = Number(h);
   document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('active', b === e.target));
-  refresh().then(() => { if (trackLine.getLatLngs().length > 1) map.fitBounds(trackLine.getBounds(), fitOpts()); });
+  refresh(true).then(() => { if (trackLine.getLatLngs().length > 1) map.fitBounds(trackLine.getBounds(), fitOpts()); });
 });
 $('metric').addEventListener('click', (e) => {
   const m = e.target.dataset && e.target.dataset.m;
@@ -698,6 +736,71 @@ $('upsave').addEventListener('click', async () => {
     up.busy = false; $('upsave').textContent = 'Add to map';
   }
 });
+
+// ---------- Charging sessions ----------
+// One pin per charger (sessions within ~150 m share it); tap for each session's numbers.
+const chargeLayer = L.layerGroup().addTo(map);
+const chargerPins = [];
+const cpinIcon = (now) => L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+  html: `<div class="cpin${now ? ' now' : ''}">${ICON.bolt}</div>` });
+const isNow = (s) => Date.now() - s.end_ts < STALE_MS;
+const dur = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`; };
+const near = (a, b) => Math.abs(a.lat - b.lat) < 0.0014 && Math.abs(a.lon - b.lon) < 0.002;
+
+function sessionHtml(s, link) {
+  const ms = s.end_ts - s.start_ts;
+  const avg = s.charge_ms > 0 ? s.kwh / (s.charge_ms / 3.6e6) : null;
+  const a = Math.max(0, Math.min(100, s.soc_start || 0)), b = Math.max(a, Math.min(100, s.soc_end || 0));
+  return `<div class="cs${link ? ' link' : ''}" data-start="${s.start_ts}">
+    <div class="cs-head">${fmtDate(s.start_ts)} <span class="tag">${s.mode === 3 ? 'DC' : 'AC'}</span>${isNow(s) ? '<span class="tag now">Charging now</span>' : ''}</div>
+    <div class="cs-grid">
+      <div><span>Time</span><b>${dur(ms)}</b></div>
+      <div><span>Energy</span><b>${n(s.kwh, 1)} kWh</b></div>
+      <div><span>Average</span><b>${avg === null ? '–' : n(avg, 1)} kW</b></div>
+      <div><span>Peak</span><b>${n(s.max_kw, 1)} kW</b></div>
+    </div>
+    <div class="cs-soc">${n(s.soc_start)}%<div class="bar"><i style="left:${a}%;width:${b - a}%"></i></div>${n(s.soc_end)}%</div>
+  </div>`;
+}
+
+let chargesLoaded = 0;
+async function loadCharges() {
+  chargesLoaded = Date.now();
+  let sessions;
+  try { sessions = (await fetch('/api/charges').then((r) => r.json())).sessions || []; } catch { return; }
+  const groups = [];
+  for (const s of sessions) {
+    const g = groups.find((x) => near(x, s));
+    if (g) g.sessions.push(s); else groups.push({ lat: s.lat, lon: s.lon, sessions: [s] });
+  }
+  const open = chargerPins.find((p) => p.marker.isPopupOpen());
+  const openKey = open && open.key;
+  chargeLayer.clearLayers(); chargerPins.length = 0;
+  for (const g of groups) {
+    const total = g.sessions.reduce((t, s) => t + (s.kwh || 0), 0);
+    const list = g.sessions.slice(0, 5).map((s) => sessionHtml(s)).join('');
+    const more = g.sessions.length > 5 ? `<div class="more">+ ${g.sessions.length - 5} earlier</div>` : '';
+    const html = `<div class="cpop"><h3>Charger</h3><div class="sub">${g.sessions.length} session${g.sessions.length > 1 ? 's' : ''} · ${n(total, 1)} kWh in total</div>${list}${more}</div>`;
+    const marker = L.marker([g.lat, g.lon], { icon: cpinIcon(g.sessions.some(isNow)), zIndexOffset: -50 })
+      .bindPopup(html, { maxWidth: 280, maxHeight: innerWidth > 760 ? 460 : 250, autoPanPaddingTopLeft: innerWidth > 760 ? [420, 20] : [20, 96] }).addTo(chargeLayer);
+    const key = `${g.lat.toFixed(4)},${g.lon.toFixed(4)}`;
+    chargerPins.push({ key, marker, sessions: g.sessions });
+    if (key === openKey) marker.openPopup();
+  }
+  $('chargecard').hidden = !sessions.length;
+  const month = sessions.filter((s) => s.start_ts > Date.now() - 30 * 864e5);
+  $('chargesum').textContent = month.length ? `${n(month.reduce((t, s) => t + (s.kwh || 0), 0))} kWh in 30 days` : '';
+  $('chargelist').innerHTML = sessions.slice(0, 4).map((s) => sessionHtml(s, true)).join('');
+}
+$('chargelist').addEventListener('click', (e) => {
+  const row = e.target.closest('.cs'); if (!row) return;
+  const p = chargerPins.find((x) => x.sessions.some((s) => String(s.start_ts) === row.dataset.start));
+  if (!p) return;
+  if (innerWidth <= 760) scrollTo({ top: 0, behavior: 'smooth' }); // phones: the map is above the panel
+  map.flyTo(p.marker.getLatLng(), Math.max(map.getZoom(), 15));
+  map.once('moveend', () => p.marker.openPopup());
+});
+setInterval(loadCharges, 5 * 60000); // also reloaded when new readings arrive (see refresh)
 
 // Photos shared from another app (Share → TrolaSpy) wait in the service worker's cache.
 async function takeShared() {

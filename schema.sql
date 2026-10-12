@@ -38,3 +38,17 @@ CREATE TABLE IF NOT EXISTS photos (
   created_ts INTEGER NOT NULL,
   created_by TEXT
 );
+
+-- Finished charging sessions, copied from readings daily so they are kept after 30 days.
+CREATE TABLE IF NOT EXISTS charges (
+  start_ts   INTEGER PRIMARY KEY,
+  end_ts     INTEGER NOT NULL,
+  lat        REAL,
+  lon        REAL,
+  kwh        REAL,     -- into the battery
+  charge_ms  INTEGER,  -- time current was flowing in
+  max_kw     REAL,
+  soc_start  REAL,
+  soc_end    REAL,
+  mode       INTEGER   -- highest ChrgMode seen: 3 = quick charge (DC)
+);

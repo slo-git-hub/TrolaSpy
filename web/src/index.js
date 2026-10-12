@@ -5,6 +5,7 @@ import icon192 from './icon-192.png';
 import icon512 from './icon-512.png';
 import iconMaskable from './icon-maskable-512.png';
 import { manifest, serviceWorker } from './pwa.js';
+import { listSessions } from '../../shared/charges.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, deletePhoto } from './photos.js';
 
@@ -99,6 +100,7 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
     if (url.pathname === '/api/latest') return json(await latest(env));
+    if (url.pathname === '/api/charges') return json({ sessions: await listSessions(env.DB) });
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await track(env, hours));
