@@ -17,6 +17,10 @@ const msToKmh = (v) => (v === null ? null : Math.round(v * 3.6 * 10) / 10);
 
 const fToC = (f) => (f === null ? null : Math.round(((f - 32) * 5 / 9) * 10) / 10);
 
+// LeafSpy sends a stand-in (87 for outside) when the car's computers don't answer, such as
+// right after the car is switched off. Anything no car could really see is dropped.
+const inRange = (v, min, max) => (v !== null && v >= min && v <= max ? v : null);
+
 export function parseReading(params, ts = Date.now()) {
   let lat = num(params.get('Lat'));
   let lon = num(params.get('Long'));
@@ -33,6 +37,8 @@ export function parseReading(params, ts = Date.now()) {
     batTemp = fToC(batTemp);
     ambTemp = fToC(ambTemp);
   }
+  batTemp = inRange(batTemp, -40, 80);
+  ambTemp = inRange(ambTemp, -45, 60);
 
   return {
     ts,

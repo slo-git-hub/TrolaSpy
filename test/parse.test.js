@@ -40,3 +40,12 @@ test('converts Fahrenheit temperatures', () => {
   assert.equal(r.bat_temp, 10);
   assert.equal(r.amb_temp, 0);
 });
+
+test('drops temperatures LeafSpy sends when the car does not answer', () => {
+  const r = parseReading(new URLSearchParams('Tunits=C&Amb=87&BatTemp=-128&PwrSw=0'));
+  assert.equal(r.amb_temp, null);
+  assert.equal(r.bat_temp, null);
+  const ok = parseReading(new URLSearchParams('Tunits=C&Amb=-12.5&BatTemp=41'));
+  assert.equal(ok.amb_temp, -12.5);
+  assert.equal(ok.bat_temp, 41);
+});
