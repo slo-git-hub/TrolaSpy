@@ -61,7 +61,7 @@ async function stats(env, hours) {
        SUM(CASE WHEN dt <= ?1 AND w < 0 AND chrg_mode > 0 THEN -w * dt END) / ?2 AS charged_kwh,
        SUM(CASE WHEN dt <= ?1 AND speed > 1 THEN dt END) / 1000.0 AS drive_s,
        MAX(speed) AS max_speed,
-       MAX(odo) - MIN(odo) AS distance_km,
+       MAX(NULLIF(odo, 0)) - MIN(NULLIF(odo, 0)) AS distance_km,
        MIN(bat_temp) AS bat_temp_min, MAX(bat_temp) AS bat_temp_max,
        MIN(amb_temp) AS amb_temp_min, MAX(amb_temp) AS amb_temp_max,
        MAX(CASE WHEN chrg_mode = 0 AND pwr_sw = 1 THEN -w END) / 1000.0 AS max_regen_kw, MAX(w) / 1000.0 AS max_power_kw

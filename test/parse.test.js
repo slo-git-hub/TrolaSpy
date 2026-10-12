@@ -20,6 +20,12 @@ test('parses a LeafSpy upload', () => {
   assert.equal('vin' in r, false);
 });
 
+test('stores speed in km/h and drops a zero odometer', () => {
+  const r = parseReading(new URLSearchParams('Speed=25&Odo=0'));
+  assert.equal(r.speed, 90);
+  assert.equal(r.odo, null);
+});
+
 test('drops a missing GPS fix', () => {
   const r = parseReading(new URLSearchParams('Lat=0&Long=0&SOC=50'));
   assert.equal(r.lat, null);
