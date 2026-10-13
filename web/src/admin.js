@@ -4,7 +4,7 @@ import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared
 import { createVapidKeys } from '../../shared/push.js';
 import { DETAIL_KM, DELAYS_H, publicSettings } from '../../shared/public.js';
 import { ensureDays, forgetDays } from '../../shared/stats.js';
-import { archiveSessions } from '../../shared/charges.js';
+import { archiveSessions, rewindSessions } from '../../shared/charges.js';
 import { addSocPoint, dashSoc, socPoints } from '../../shared/soc.js';
 
 const json = (data, status = 200) =>
@@ -184,7 +184,7 @@ export async function handleAdmin(request, env, url) {
     const good = rows.filter((r) => Array.isArray(r) && num(r[idx[0]]) > 0);
     if (good.length) await db.batch(good.map((r) => stmt.bind(...idx.map((i) => (i < 0 ? null : num(r[i]))))));
     const tss = good.map((r) => num(r[idx[0]]));
-    if (tss.length) await forgetDays(db, Math.min(...tss), Math.max(...tss));
+    if (tss.length) await Promise.all([forgetDays(db, Math.min(...tss), Math.max(...tss)), rewindSessions(db, Math.min(...tss))]);
     return json({ imported: good.length });
   }
   if (path === 'delete' && method === 'POST') {
@@ -196,8 +196,8 @@ export async function handleAdmin(request, env, url) {
     return json({ deleted: res.meta.changes });
   }
   if (path === 'reindex' && method === 'POST') {
-    // After a restore: store charging sessions found in the restored readings.
-    return json({ charges: await archiveSessions(db) });
+    // After a restore: store charging sessions found in the restored readings, a stretch per call.
+    return json(await archiveSessions(db));
   }
   return json({ error: 'Not found' }, 404);
 }

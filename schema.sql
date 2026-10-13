@@ -71,7 +71,15 @@ CREATE TABLE IF NOT EXISTS daily (
   ahr         REAL,
   amb_min     REAL,
   amb_max     REAL,
-  computed_ts INTEGER
+  computed_ts INTEGER,
+  max_regen_kw REAL   -- strongest regen while driving
+);
+
+-- Victron totals per finished UTC day, so the month bars don't re-read every reading.
+CREATE TABLE IF NOT EXISTS victron_days (
+  day        TEXT PRIMARY KEY,  -- YYYY-MM-DD
+  solar_wh   INTEGER,           -- the solar charger's own total for the day
+  dcdc_on_ms INTEGER            -- how long the DC-DC charger ran
 );
 
 -- Admin settings and alert state, as JSON values.

@@ -63,7 +63,8 @@ export default {
   async scheduled(event, env) {
     await checkQuietCharge(env.DB); // every 10 min: a charge LeafSpy stopped seeing has ended
     if (event.cron !== DAILY_CRON) return;
-    await archiveSessions(env.DB); // keep charging sessions before any readings go
+    // Keep charging sessions before any readings go (a few stretches, if it has fallen behind).
+    for (let i = 0; i < 3 && (await archiveSessions(env.DB)).more; i++);
     await ensureDays(env.DB); // day summaries for the monthly view and battery health
     // RETENTION_DAYS = "0" (the default) keeps readings forever.
     const days = Number(env.RETENTION_DAYS) || 0;

@@ -784,26 +784,43 @@ function renderTrack({ points }) {
   renderChart(points);
 }
 
-// Track and stats are only re-read when a new reading has arrived (keeps D1 reads low).
-let shownTs = null;
+// Cloudflare's free database allows 5 million rows read a day, and LeafSpy uploads every 10 s
+// while the car is on. So nothing is loaded while the page is hidden, and the track and stats
+// (which read many rows) are re-read only every few minutes. Between those, each new reading
+// is added to the line and chart from the light /api/latest.
+const heavyEvery = () => (hours > 24 ? 60 : 10) * 60000;
+const hidden = () => document.visibilityState === 'hidden';
+let shownTs = null, heavyAt = 0;
 async function refresh(force = false) {
+  if (hidden() && !force) return;
   try {
     const latest = await fetch('/api/latest').then((r) => r.json());
     const ts = latest.reading && latest.reading.ts;
-    if (force || ts !== shownTs) {
+    if (force || (ts !== shownTs && Date.now() - heavyAt > heavyEvery())) {
+      heavyAt = Date.now();
       const [track, st] = await Promise.all([
         fetch(`/api/track?hours=${hours}`).then((r) => r.json()),
         fetch(`/api/stats?hours=${hours}`).then((r) => r.json()),
       ]);
       renderTrack(track);
       renderStats(st);
-      shownTs = ts;
-      if (Date.now() - chargesLoaded > 60000) loadCharges();
-    }
+      if (Date.now() - chargesLoaded > CHARGES_EVERY) loadCharges();
+    } else if (ts && ts !== shownTs) addPoint(latest.reading);
+    shownTs = ts;
     renderLatest(latest);
   } catch (e) {
     $('updated').textContent = 'Could not load data. Retrying…';
   }
+}
+
+// A new reading as a point on the track line and chart, like the ones /api/track sends.
+function addPoint(r) {
+  const kw = r.bat_volts !== null && r.bat_amps !== null && !(r.chrg_mode > 0 && !(r.bat_volts * r.bat_amps)) ? r.bat_volts * r.bat_amps / 1000 : null;
+  const since = Date.now() - hours * 3600e3;
+  trackPoints = [...trackPoints.filter((p) => p.ts >= since && p.ts < r.ts), { ts: r.ts, lat: r.lat, lon: r.lon, soc: r.soc, speed: r.speed,
+    chrg_pwr: r.chrg_pwr, pwr_sw: r.pwr_sw, bat_temp: r.bat_temp, amb_temp: r.amb_temp, kw }];
+  if (r.lat !== null) trackLine.addLatLng([r.lat, r.lon]);
+  renderChart(trackPoints);
 }
 
 $('range').addEventListener('click', (e) => {
@@ -1459,6 +1476,7 @@ function sessionHtml(s, link) {
   </div>`;
 }
 
+const CHARGES_EVERY = 10 * 60000;
 let chargesLoaded = 0;
 async function loadCharges() {
   chargesLoaded = Date.now();
@@ -1496,7 +1514,7 @@ $('chargelist').addEventListener('click', (e) => {
   map.flyTo(p.marker.getLatLng(), Math.max(map.getZoom(), 15));
   map.once('moveend', () => p.marker.openPopup());
 });
-setInterval(loadCharges, 5 * 60000); // also reloaded when new readings arrive (see refresh)
+setInterval(() => { if (!hidden()) loadCharges(); }, CHARGES_EVERY); // also with the track (see refresh)
 
 // ---------- Small charts (monthly bars, battery health line) ----------
 const DAY_MS = 864e5;
@@ -1591,7 +1609,11 @@ function leisureText(L) {
   return `Leisure battery is charging. ${high}`;
 }
 
+// The Bridge app sends Victron readings every 5 minutes.
+let solarAt = 0;
+const solarEvery = () => (hours > 24 ? 30 : 5) * 60000;
 async function loadSolar() {
+  solarAt = Date.now();
   try { solarData = await fetch(`/api/solar?hours=${hours}`).then((r) => r.json()); } catch { return; }
   renderSolar();
 }
@@ -1656,7 +1678,7 @@ $('solarmetric').addEventListener('click', (e) => {
 });
 addEventListener('resize', renderSolar);
 loadSolar();
-setInterval(loadSolar, 60000);
+setInterval(() => { if (!hidden() && Date.now() - solarAt > solarEvery()) loadSolar(); }, 60000);
 
 // ---------- Monthly summary ----------
 let month = new Date().toISOString().slice(0, 7), monthData = null;
@@ -1704,7 +1726,11 @@ $('mprev').addEventListener('click', () => shiftMonth(-1));
 $('mnext').addEventListener('click', () => shiftMonth(1));
 addEventListener('resize', renderMonth);
 loadMonth();
-setInterval(() => { if (month === new Date().toISOString().slice(0, 7)) loadMonth(); }, 10 * 60000);
+let monthAt = Date.now();
+const MONTH_EVERY = 30 * 60000;
+setInterval(() => {
+  if (!hidden() && Date.now() - monthAt > MONTH_EVERY && month === new Date().toISOString().slice(0, 7)) { monthAt = Date.now(); loadMonth(); }
+}, 60000);
 
 // ---------- Admin ----------
 const api = (path, opts = {}) => fetch(`/api/admin/${path}`, { headers: { 'content-type': 'application/json' }, ...opts })
@@ -1956,7 +1982,8 @@ $('dt-file').addEventListener('change', async (e) => {
       const r = await api('import', { method: 'POST', body: JSON.stringify({ columns, rows: rows.slice(i, i + 500) }) });
       done += r.imported; say('dt-rmsg', `${done.toLocaleString()} of ${rows.length.toLocaleString()}…`);
     }
-    await api('reindex', { method: 'POST' });
+    say('dt-rmsg', 'Finding charging sessions…');
+    while ((await api('reindex', { method: 'POST' })).more);
     say('dt-rmsg', `Restored ${done.toLocaleString()} readings.`);
     loadDataInfo(); refresh(true); loadCharges(); loadMonth();
   } catch (e) { say('dt-rmsg', e.message); }
@@ -2005,6 +2032,13 @@ loadPhotos();
 
 refresh();
 setInterval(refresh, 15000);
+// Back on the page: catch up on whatever is due.
+document.addEventListener('visibilitychange', () => {
+  if (hidden()) return;
+  refresh();
+  if (Date.now() - solarAt > solarEvery()) loadSolar();
+  if (Date.now() - chargesLoaded > CHARGES_EVERY) loadCharges();
+});
 </script>
 </body>
 </html>

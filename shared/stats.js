@@ -1,5 +1,6 @@
 // Driving and energy totals for a time range, and the per-day summaries built from them.
-import { computeSessions } from './charges.js';
+// Worked out here from one plain read of the readings (see charges.js for why not in SQL).
+import { SESSION_GAP_MS, scanReadings, sessionsFrom } from './charges.js';
 
 // Power is pack volts x amps: positive = drawing from the battery, negative = going in
 // (regen while driving, or charging). Each reading's power is applied to the gap since
@@ -8,34 +9,84 @@ const MAX_GAP_MS = 150_000; // LeafSpy uploads every 35-120 s once the tablet do
 const MS_PER_KWH = 3.6e9; // W x ms per kWh
 const DAY_MS = 864e5;
 const FOREVER = 8.64e15;
+// Longer ranges take whole days from the daily table and read only the part days at each end.
+const LIVE_MAX_MS = 2 * DAY_MS;
 
-const STATS_SQL = `
-WITH r AS (
-  SELECT ts, odo, speed, pwr_sw, COALESCE(chrg_mode, 0) AS chrg_mode, bat_temp, amb_temp,
-         NULLIF(soh, 0) AS soh, NULLIF(hx, 0) AS hx, NULLIF(ahr, 0) AS ahr,
-         bat_volts * bat_amps AS w,
-         ts - LAG(ts) OVER (ORDER BY ts) AS dt
-    FROM readings WHERE ts >= ?3 AND ts < ?4)
-SELECT
-  COUNT(*) AS readings,
-  SUM(CASE WHEN dt <= ?1 AND w > 0 AND chrg_mode = 0 THEN w * dt END) / ?2 AS used_kwh,
-  SUM(CASE WHEN dt <= ?1 AND w < 0 AND chrg_mode = 0 AND pwr_sw = 1 THEN -w * dt END) / ?2 AS regen_kwh,
-  SUM(CASE WHEN dt <= ?1 AND speed > 1 THEN dt END) / 1000.0 AS drive_s,
-  MAX(speed) AS max_speed,
-  MAX(NULLIF(odo, 0)) - MIN(NULLIF(odo, 0)) AS distance_km,
-  MIN(bat_temp) AS bat_temp_min, MAX(bat_temp) AS bat_temp_max,
-  MIN(amb_temp) AS amb_temp_min, MAX(amb_temp) AS amb_temp_max,
-  MAX(CASE WHEN chrg_mode = 0 AND pwr_sw = 1 THEN -w END) / 1000.0 AS max_regen_kw, MAX(w) / 1000.0 AS max_power_kw,
-  AVG(soh) AS soh, AVG(hx) AS hx, AVG(ahr) AS ahr
-FROM r`;
+const add = (a, b) => (b === null || b === undefined ? a : (a ?? 0) + b);
+const hi = (a, b) => (b === null || b === undefined ? a : a === null ? b : Math.max(a, b));
+const lo = (a, b) => (b === null || b === undefined ? a : a === null ? b : Math.min(a, b));
+const nz = (v) => (v ? v : null);
 
-export async function rangeStats(db, since, until = FOREVER) {
-  const [row, sessions] = await Promise.all([
-    db.prepare(STATS_SQL).bind(MAX_GAP_MS, MS_PER_KWH, since, until).first(),
-    computeSessions(db, since, until),
-  ]);
+function statsFrom(rows) {
+  const t = { readings: rows.length, used_kwh: null, regen_kwh: null, drive_s: null, max_speed: null, distance_km: null,
+    bat_temp_min: null, bat_temp_max: null, amb_temp_min: null, amb_temp_max: null, max_regen_kw: null, max_power_kw: null };
+  const avg = { soh: [0, 0], hx: [0, 0], ahr: [0, 0] };
+  let prev = null, odoMin = null, odoMax = null;
+  for (const r of rows) {
+    const dt = prev === null ? null : r.ts - prev;
+    prev = r.ts;
+    const w = r.bat_volts === null || r.bat_amps === null ? null : r.bat_volts * r.bat_amps;
+    const parked = (r.chrg_mode ?? 0) === 0, on = r.pwr_sw === 1;
+    if (dt !== null && dt <= MAX_GAP_MS) {
+      if (w !== null && w > 0 && parked) t.used_kwh = add(t.used_kwh, (w * dt) / MS_PER_KWH);
+      if (w !== null && w < 0 && parked && on) t.regen_kwh = add(t.regen_kwh, (-w * dt) / MS_PER_KWH);
+      if (r.speed > 1) t.drive_s = add(t.drive_s, dt / 1000);
+    }
+    t.max_speed = hi(t.max_speed, r.speed);
+    odoMin = lo(odoMin, nz(r.odo)); odoMax = hi(odoMax, nz(r.odo));
+    t.bat_temp_min = lo(t.bat_temp_min, r.bat_temp); t.bat_temp_max = hi(t.bat_temp_max, r.bat_temp);
+    t.amb_temp_min = lo(t.amb_temp_min, r.amb_temp); t.amb_temp_max = hi(t.amb_temp_max, r.amb_temp);
+    if (w !== null && parked && on) t.max_regen_kw = hi(t.max_regen_kw, -w / 1000);
+    if (w !== null) t.max_power_kw = hi(t.max_power_kw, w / 1000);
+    for (const k of ['soh', 'hx', 'ahr']) if (nz(r[k]) !== null) { avg[k][0] += r[k]; avg[k][1]++; }
+  }
+  if (odoMin !== null) t.distance_km = odoMax - odoMin;
+  for (const k of ['soh', 'hx', 'ahr']) t[k] = avg[k][1] ? avg[k][0] / avg[k][1] : null;
+  return t;
+}
+
+async function liveStats(db, since, until) {
+  if (until <= since) return null;
+  // Read a little past `until`: a charge ending near it needs the reading after.
+  const rows = await scanReadings(db, since, until + SESSION_GAP_MS);
+  const sessions = await sessionsFrom(db, rows, until);
   // Charged energy comes from the charging sessions (they also count charges LeafSpy missed).
-  return { ...row, charged_kwh: sessions.reduce((t, s) => t + (s.kwh || 0), 0), charges: sessions.length };
+  return { ...statsFrom(rows.filter((r) => r.ts < until)), charged_kwh: sessions.reduce((t, s) => t + (s.kwh || 0), 0), charges: sessions.length };
+}
+
+const fromDaily = (d) => ({ readings: d.readings, used_kwh: d.used_kwh, regen_kwh: d.regen_kwh, drive_s: d.drive_s,
+  max_speed: d.max_speed, distance_km: d.distance_km, amb_temp_min: d.amb_min, amb_temp_max: d.amb_max,
+  max_regen_kw: d.max_regen_kw ?? null, soh: d.soh, hx: d.hx, ahr: d.ahr, charged_kwh: d.charged_kwh, charges: d.charges });
+
+function combine(parts) {
+  parts = parts.filter(Boolean);
+  const sum = (k) => parts.reduce((t, p) => add(t, p[k]), null);
+  const top = (k) => parts.reduce((t, p) => hi(t, p[k]), null);
+  const bottom = (k) => parts.reduce((t, p) => lo(t, p[k]), null);
+  const mean = (k) => { const v = parts.map((p) => p[k]).filter((x) => x !== null && x !== undefined); return v.length ? v.reduce((a, b) => a + b) / v.length : null; };
+  return {
+    readings: sum('readings') ?? 0, used_kwh: sum('used_kwh'), regen_kwh: sum('regen_kwh'), drive_s: sum('drive_s'),
+    max_speed: top('max_speed'), distance_km: sum('distance_km'),
+    bat_temp_min: bottom('bat_temp_min'), bat_temp_max: top('bat_temp_max'), amb_temp_min: bottom('amb_temp_min'), amb_temp_max: top('amb_temp_max'),
+    max_regen_kw: top('max_regen_kw'), max_power_kw: top('max_power_kw'), soh: mean('soh'), hx: mean('hx'), ahr: mean('ahr'),
+    charged_kwh: sum('charged_kwh') ?? 0, charges: sum('charges') ?? 0,
+  };
+}
+
+export async function rangeStats(db, since, until = Date.now()) {
+  if (until - since <= LIVE_MAX_MS) return combine([await liveStats(db, since, until)]);
+  const a = Math.ceil(since / DAY_MS) * DAY_MS, b = Math.floor(until / DAY_MS) * DAY_MS;
+  await ensureDays(db, a, b);
+  const { results: days } = await db.prepare('SELECT * FROM daily WHERE day >= ? AND day < ?').bind(dayKey(a), dayKey(b)).all();
+  // Days still without a summary (ensureDays does a few per call) are read directly.
+  const have = new Set(days.map((d) => d.day)), gaps = [];
+  for (let t = a, g = null; t < b; t += DAY_MS) {
+    if (have.has(dayKey(t))) g = null;
+    else if (g) g[1] = t + DAY_MS;
+    else gaps.push(g = [t, t + DAY_MS]);
+  }
+  const live = await Promise.all([[since, a], ...gaps, [b, until]].map(([x, y]) => liveStats(db, x, y)));
+  return combine([...live, ...days.map(fromDaily)]);
 }
 
 // ---------- Daily summaries (UTC days) ----------
@@ -44,19 +95,20 @@ export async function rangeStats(db, since, until = FOREVER) {
 export const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 const dayStart = (ms) => Math.floor(ms / DAY_MS) * DAY_MS;
 const DAILY_COLS = ['day', 'readings', 'distance_km', 'drive_s', 'used_kwh', 'regen_kwh', 'charged_kwh', 'charges',
-  'max_speed', 'soh', 'hx', 'ahr', 'amb_min', 'amb_max'];
+  'max_speed', 'soh', 'hx', 'ahr', 'amb_min', 'amb_max', 'max_regen_kw'];
 
 async function computeDay(db, start) {
-  const s = await rangeStats(db, start, start + DAY_MS);
+  const s = combine([await liveStats(db, start, start + DAY_MS)]);
   return {
     day: dayKey(start), readings: s.readings, distance_km: s.distance_km, drive_s: s.drive_s,
     used_kwh: s.used_kwh, regen_kwh: s.regen_kwh, charged_kwh: s.charged_kwh, charges: s.charges,
     max_speed: s.max_speed, soh: s.soh, hx: s.hx, ahr: s.ahr, amb_min: s.amb_temp_min, amb_max: s.amb_temp_max,
+    max_regen_kw: s.max_regen_kw,
   };
 }
 
 // Works out and stores any finished day in [from, to) that has no summary yet
-// (at most `limit` per call, oldest first: each day costs 3 queries, and a Worker on the
+// (at most `limit` per call, oldest first: each day costs a query or two, and a Worker on the
 // free plan may make 50). Days before the first reading are skipped.
 export async function ensureDays(db, from = 0, to = FOREVER, limit = 10) {
   const first = await db.prepare('SELECT MIN(ts) AS ts FROM readings').first();
