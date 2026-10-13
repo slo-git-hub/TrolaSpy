@@ -53,13 +53,13 @@ public class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         col.addView(title);
         col.addView(text("Passes the Victron solar and DC-DC chargers' Bluetooth readings on to TrolaSpy. "
-                + "Use the same user name and password as LeafSpy. The server address is on the TrolaSpy page, Admin, Solar.", 14));
+                + "Use the same ID and password as LeafSpy (LeafSpy: Settings, Server). The server address is on the TrolaSpy page, Admin, Solar.", 14));
 
         SharedPreferences p = BridgeService.prefs(this);
         server = field(col, "Server", p.getString("server", ""), InputType.TYPE_TEXT_VARIATION_URI);
         server.setHint("https://trolaspy-ingest.….workers.dev");
-        user = field(col, "User name", p.getString("user", ""), InputType.TYPE_CLASS_TEXT);
-        pass = field(col, "Password", p.getString("pass", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        user = field(col, "LeafSpy ID", p.getString("user", ""), InputType.TYPE_CLASS_TEXT);
+        pass = field(col, "LeafSpy password", p.getString("pass", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
 
         Button start = new Button(this);
         start.setText("Save and start");
