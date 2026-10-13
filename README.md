@@ -27,7 +27,7 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   each to `trolaspy-ingest/bridge`, logged in with LeafSpy's ID/password. The broadcasts
   are encrypted; the keys are saved in the admin card's Solar tab and `shared/victron.js` reads
   them. Readings go to the `victron` table (a row when something changes, else every 15 min)
-  and show in the Solar card. Built by `.github/workflows/bridge.yml` and published as the
+  and show in the Solar and DC-DC charger cards. Built by `.github/workflows/bridge.yml` and published as the
   latest GitHub release (`trolaspy-bridge.apk`); its signing key is kept in R2 (`private/`).
 - **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings, victron).
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts

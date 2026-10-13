@@ -130,6 +130,8 @@
   .legend.solardays { margin-top: 12px; }
   #solardays .bar { fill: var(--s-solar); }
   #solardays .bar.on { fill: var(--charge); }
+  #dcdcstats { margin-bottom: 8px; }
+  #dcdcdays .bar.on { fill: var(--accent-ink); }
   .adm input.key { width: 100%; max-width: 330px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
     font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--solid); color: var(--text); }
   .adm .heard { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
@@ -356,6 +358,16 @@
     <div class="chart" id="solarchart"></div>
     <div class="legend solardays"><span>Solar per day, last 30 days</span></div>
     <div class="chart" id="solardays"></div>
+  </section>
+
+  <section class="card" id="dcdccard" hidden>
+    <div class="chart-head"><h2>DC-DC charger</h2><span class="sub" id="dcdcsub"></span></div>
+    <div class="stats" id="dcdcstats"></div>
+    <div class="regen solarstate" id="dcdcstate"></div>
+    <div class="legend solarhead"><span><i style="background:var(--accent)"></i>Van battery</span></div>
+    <div class="chart" id="dcdcchart"></div>
+    <div class="legend solardays"><span>Minutes charging per day, last 30 days</span></div>
+    <div class="chart" id="dcdcdays"></div>
   </section>
 
   <section class="card">
@@ -1079,24 +1091,20 @@ async function loadSolar() {
 }
 function renderSolar() {
   const d = solarData; if (!d) return;
-  $('solarcard').hidden = !d.solar && !d.dcdc;
+  renderDcdc();
+  $('solarcard').hidden = !d.solar;
   if ($('solarcard').hidden) return;
-  const s = d.solar || {}, c = d.dcdc || {};
-  const newest = Math.max(s.ts || 0, c.ts || 0);
-  $('solarsub').textContent = newest ? `Updated ${ago(newest)}` : '';
+  const s = d.solar;
+  $('solarsub').textContent = `Updated ${ago(s.ts)}`;
   const today = d.days.find((x) => x.day === new Date().toISOString().slice(0, 10));
   const items = [
     ['Solar now', n(s.pv_w), 'W'],
     ['Solar today', today ? wh(today.wh) : wh(s.yield_wh), ''],
     ['Leisure battery', n(s.batt_v, 2), 'V'],
-    ['Van battery', n(c.in_v, 2), 'V'],
+    ['Charging', n(Math.max(0, s.batt_a || 0), 1), 'A'],
   ];
   $('solarstats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}${u ? `<small>${u}</small>` : ''}</b></div>`).join('');
-  const parts = [];
-  if (s.ts) parts.push(`Solar charger <b>${VSTATE[s.state] || 'Unknown'}</b>${s.batt_a > 0 ? `, ${n(s.batt_a, 1)} A into the battery` : ''}`);
-  if (c.ts) parts.push(c.state ? `DC-DC charger <b>${VSTATE[c.state] || 'On'}</b>${c.out_v ? `, ${n(c.out_v, 2)} V out` : ''}`
-    : `DC-DC charger <b>off</b>${offText(c.off_reason) ? `: ${offText(c.off_reason).toLowerCase()}` : ''}`);
-  $('solarstate').innerHTML = parts.join(' · ');
+  $('solarstate').innerHTML = `Solar charger <b>${VSTATE[s.state] || 'Unknown'}</b>${s.batt_a > 0 ? `, ${n(s.batt_a, 1)} A into the leisure battery` : ''}`;
   const cfg = { pv_w: { color: '--s-solar', unit: ' W', digits: 0, name: 'Solar power', zero: true }, batt_v: { color: '--batt', unit: ' V', digits: 2, name: 'Leisure battery' } }[solarKey];
   $('solarlegend').innerHTML = `<span><i style="background:var(${cfg.color})"></i>${cfg.name}</span>`;
   const pts = d.points.filter((p) => p[solarKey] !== null).map((p) => ({ t: p.ts, v: p[solarKey] }));
@@ -1106,6 +1114,33 @@ function renderSolar() {
     return { key, label: fmtDay(key), wh: (d.days.find((x) => x.day === key) || {}).wh || 0 };
   });
   barChart($('solardays'), days, { value: (x) => x.wh, tip: (x) => `${x.label}: ${x.wh >= 1000 ? `${n(x.wh / 1000, 2)} kWh` : `${x.wh} Wh`}` });
+}
+// Orion DC-DC charger: charges the leisure battery from the van battery while the engine runs.
+const runTime = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}<small>h</small> ${m % 60}<small>min</small>` : `${m}<small>min</small>`; };
+function renderDcdc() {
+  const d = solarData, c = d.dcdc;
+  $('dcdccard').hidden = !c;
+  if (!c) return;
+  $('dcdcsub').textContent = `Updated ${ago(c.ts)}`;
+  const today = d.dcdc_days.find((x) => x.day === new Date().toISOString().slice(0, 10));
+  const items = [
+    ['Status', c.state ? 'On' : 'Off', ''],
+    ['Van battery', n(c.in_v, 2), 'V'],
+    ['Output', c.state ? n(c.out_v, 2) : '–', c.state ? 'V' : ''],
+    ['Charged today', runTime(today ? today.on_ms : 0), ''],
+  ];
+  $('dcdcstats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}${u ? `<small>${u}</small>` : ''}</b></div>`).join('');
+  const why = offText(c.off_reason);
+  const stage = VSTATE[c.state] && c.state !== 249 ? ` (${VSTATE[c.state].toLowerCase()})` : '';
+  $('dcdcstate').innerHTML = c.state ? `<b>Charging</b> the leisure battery from the van battery${stage}${c.out_v ? ` at ${n(c.out_v, 2)} V` : ''}`
+    : `<b>Not charging</b>${why ? `: ${why.toLowerCase()}` : ''}`;
+  const pts = d.dcdc_points.filter((p) => p.in_v !== null).map((p) => ({ t: p.ts, v: p.in_v }));
+  lineChart($('dcdcchart'), pts, { color: '--accent', unit: ' V', digits: 2, times: true, empty: 'No readings in this time range yet.' });
+  const days = Array.from({ length: 30 }, (_, i) => {
+    const key = new Date(Date.now() - (29 - i) * DAY_MS).toISOString().slice(0, 10);
+    return { key, label: fmtDay(key), min: Math.round(((d.dcdc_days.find((x) => x.day === key) || {}).on_ms || 0) / 60000) };
+  });
+  barChart($('dcdcdays'), days, { value: (x) => x.min, tip: (x) => `${x.label}: ${x.min ? dur(x.min * 60000) : 'not charging'}` });
 }
 $('solarmetric').addEventListener('click', (e) => {
   const k = e.target.dataset && e.target.dataset.k; if (!k) return;

@@ -68,21 +68,33 @@ async function track(env, hours) {
   return { since, bucketMs, points: results };
 }
 
-// Victron solar charger and DC-DC charger: newest values, a time series for the chart, and
-// the solar yield per day (the charger's own "today" total, taken while the sun is on the panels,
-// since it only resets when they wake up the next morning).
+// Victron solar charger and DC-DC charger: newest values, a time series for each chart, the
+// solar yield per day (the charger's own "today" total, taken while the sun is on the panels,
+// since it only resets when they wake up the next morning) and how long the DC-DC charger ran
+// per day. A row is stored on every change and at least every 15 minutes, so each "on" row
+// counts until the next one, but for at most RUN_GAP_MS (the bridge app may have stopped).
+const RUN_GAP_MS = 20 * 60 * 1000;
 async function solar(env, hours) {
-  const now = Date.now(), since = now - hours * 3600e3;
+  const now = Date.now(), since = now - hours * 3600e3, month = now - 30 * 864e5;
   const bucketMs = Math.max(60_000, Math.ceil((hours * 3600e3) / 600));
   const one = (kind) => env.DB.prepare('SELECT * FROM victron WHERE kind = ? ORDER BY ts DESC LIMIT 1').bind(kind).first();
-  const [sol, dcdc, pts, days] = await Promise.all([
+  const [sol, dcdc, pts, days, dpts, runs] = await Promise.all([
     one('solar'), one('dcdc'),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(pv_w)) AS pv_w, ROUND(AVG(batt_v), 2) AS batt_v
                       FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / ? ORDER BY ts`).bind(since, bucketMs).all(),
     env.DB.prepare(`SELECT ts / 86400000 AS d, MAX(yield_wh) AS wh FROM victron
-                     WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? GROUP BY d ORDER BY d`).bind(now - 30 * 864e5).all(),
+                     WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? GROUP BY d ORDER BY d`).bind(month).all(),
+    env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(in_v), 2) AS in_v FROM victron
+                     WHERE kind = 'dcdc' AND ts >= ? GROUP BY ts / ? ORDER BY ts`).bind(since, bucketMs).all(),
+    env.DB.prepare(`WITH r AS (SELECT ts, state, LEAD(ts) OVER (ORDER BY ts) AS nx FROM victron WHERE kind = 'dcdc' AND ts >= ?1)
+                    SELECT ts / 86400000 AS d, SUM(MIN(COALESCE(nx, ?2), ts + ?3) - ts) AS on_ms FROM r
+                     WHERE state > 0 GROUP BY d ORDER BY d`).bind(month, now, RUN_GAP_MS).all(),
   ]);
-  return { solar: sol, dcdc, points: pts.results, days: days.results.map((r) => ({ day: dayKey(r.d * 864e5), wh: r.wh })) };
+  return {
+    solar: sol, dcdc, points: pts.results, dcdc_points: dpts.results,
+    days: days.results.map((r) => ({ day: dayKey(r.d * 864e5), wh: r.wh })),
+    dcdc_days: runs.results.map((r) => ({ day: dayKey(r.d * 864e5), on_ms: r.on_ms })),
+  };
 }
 
 async function stats(env, hours) {
