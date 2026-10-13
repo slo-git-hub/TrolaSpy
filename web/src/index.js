@@ -27,6 +27,9 @@ const json = (data, status = 200) =>
 // group comes from the newest reading that has its first value.
 const CAR_FIELDS = [['soc', 'gids', 'bat_temp', 'amb_temp'], ['soh', 'hx', 'ahr'], ['odo']];
 const missing = (k, v) => v === null || v === undefined || (v === 0 && !k.endsWith('_temp'));
+// While charging, LeafSpy sometimes gets no battery current from the car and sends 0. The
+// newest current measured in the last CHARGE_FILL_MS of the charge is shown instead.
+const CHARGE_FILL_MS = 20 * 60 * 1000;
 
 async function latest(env) {
   const row = await env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first();
@@ -34,6 +37,13 @@ async function latest(env) {
     if (!group.some((k) => missing(k, row[k]))) continue;
     const known = await env.DB.prepare(`SELECT ${group.join(', ')} FROM readings WHERE ${group[0]} > 0 ORDER BY ts DESC LIMIT 1`).first();
     if (known) for (const k of group) if (missing(k, row[k]) && !missing(k, known[k])) row[k] = known[k];
+  }
+  if (row && row.chrg_mode > 0 && !(row.bat_volts * row.bat_amps)) {
+    const known = await env.DB.prepare(
+      `SELECT bat_volts, bat_amps FROM readings
+        WHERE ts >= ? AND ts < ? AND chrg_mode > 0 AND bat_volts * bat_amps < 0 ORDER BY ts DESC LIMIT 1`
+    ).bind(row.ts - CHARGE_FILL_MS, row.ts).first();
+    Object.assign(row, known || { bat_amps: null });
   }
   // Last known position, in case the newest upload had no GPS fix.
   const pos = row && row.lat === null
@@ -46,9 +56,11 @@ async function track(env, hours) {
   const since = Date.now() - hours * 3600 * 1000;
   // Downsample so long ranges stay light: one point per bucket.
   const bucketMs = Math.max(10_000, Math.ceil((hours * 3600 * 1000) / MAX_POINTS));
+  // No power for charging readings that came without the battery current, so the chart skips them.
   const { results } = await env.DB.prepare(
     `SELECT MIN(ts) AS ts, lat, lon, NULLIF(soc, 0) AS soc, speed, chrg_pwr, pwr_sw, bat_temp, amb_temp,
-            ROUND(bat_volts * bat_amps / 1000.0, 2) AS kw
+            CASE WHEN chrg_mode > 0 AND COALESCE(bat_volts * bat_amps, 0) = 0 THEN NULL
+                 ELSE ROUND(bat_volts * bat_amps / 1000.0, 2) END AS kw
        FROM readings WHERE ts >= ?
       GROUP BY ts / ?
       ORDER BY ts`

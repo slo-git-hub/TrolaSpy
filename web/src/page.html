@@ -526,9 +526,9 @@ function renderLatest({ reading: r, lastPosition, co2_g_per_km: co2g }) {
   const chips = [];
   if (charging && stale) chips.push(`<span class="chip">${ICON.bolt}Was charging</span>`);
   else if (charging) {
-    // Power going into the pack (volts x amps), so add-on chargers count too; the car's own
-    // ChrgPwr only knows its built-in charger.
-    const inKw = r.bat_volts && r.bat_amps < 0 ? (-r.bat_volts * r.bat_amps) / 1000 : (r.chrg_pwr || 0) / 1000;
+    // Power going into the pack (volts x amps), so the add-on charger counts too. The car's own
+    // ChrgPwr only knows its built-in charger (about 6 kW), so it is never shown instead.
+    const inKw = r.bat_volts && r.bat_amps < 0 ? (-r.bat_volts * r.bat_amps) / 1000 : 0;
     chips.push(`<span class="chip charge">${ICON.bolt}${CHARGE[r.chrg_mode]}${inKw > 0.1 ? ` · ${n(inKw, 1)} kW` : ''}</span>`);
   }
   else if (r.pwr_sw === 1 && !stale) chips.push(`<span class="chip drive">${ICON.drive}${r.speed > 1 ? `Driving · ${n(r.speed)} km/h` : 'Ready'}</span>`);
