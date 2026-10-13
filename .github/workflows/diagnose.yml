@@ -67,3 +67,5 @@ jobs:
             "SELECT kind, COUNT(*) n, ROUND(($NOW - MAX(ts)) / 60000.0, 1) last_min_ago FROM victron GROUP BY kind"
           q "Victron: last DC-DC readings" \
             "SELECT ROUND(($NOW - ts) / 60000.0, 1) min_ago, state, error, in_v, out_v, off_reason FROM victron WHERE kind = 'dcdc' ORDER BY ts DESC LIMIT 5"
+          q "Victron: solar readings, last 12h" \
+            "SELECT ROUND(($NOW - ts) / 60000.0) min_ago, state, batt_v, batt_a, pv_w, yield_wh FROM victron WHERE kind = 'solar' AND ts >= $NOW - 43200000 ORDER BY ts DESC LIMIT 60"
