@@ -1214,7 +1214,7 @@ $('vk-save').addEventListener('click', async () => {
   say('vk-msg', 'Saving…');
   try {
     await api('victron', { method: 'PUT', body: JSON.stringify({ solar: $('vk-solar').value, dcdc: $('vk-dcdc').value }) });
-    say('vk-msg', 'Saved. Readings show up within a couple of minutes.');
+    say('vk-msg', 'Saved. Readings show up within 5 minutes.');
   } catch (e) { say('vk-msg', e.message); }
 });
 

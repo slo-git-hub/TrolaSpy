@@ -41,14 +41,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Listens for Victron "Instant readout" Bluetooth broadcasts and sends the newest one from each
- * device to TrolaSpy once a minute. It never connects to the devices, so VictronConnect keeps
- * working. The broadcasts stay encrypted here; TrolaSpy holds the keys and reads them.
+ * Every 5 minutes, listens for 30 seconds to the Victron "Instant readout" Bluetooth broadcasts
+ * and sends the newest one from each device to TrolaSpy. The chargers broadcast about once a
+ * second whether anyone listens or not; the app never connects to them or asks them anything,
+ * so VictronConnect keeps working. The broadcasts stay encrypted here; TrolaSpy holds the keys.
  */
 public class BridgeService extends Service {
     static final int VICTRON = 0x02E1; // Victron's Bluetooth company id
-    static final long UPLOAD_EVERY_S = 60;
-    static final long RESCAN_EVERY_S = 15 * 60; // a fresh scan now and then, in case Android stalls one
+    static final long ROUND_EVERY_S = 5 * 60; // listen and send this often
+    static final long LISTEN_S = 30; // how long each round listens
     static final String CHANNEL = "bridge";
 
     /** What the screen shows: devices heard and how the last upload went. */
@@ -87,8 +88,7 @@ public class BridgeService extends Service {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TrolaSpyBridge:listen");
             wakeLock.acquire();
             timer = Executors.newSingleThreadScheduledExecutor();
-            timer.scheduleWithFixedDelay(this::upload, 20, UPLOAD_EVERY_S, TimeUnit.SECONDS);
-            timer.scheduleWithFixedDelay(this::restartScan, 0, RESCAN_EVERY_S, TimeUnit.SECONDS);
+            timer.scheduleAtFixedRate(this::round, 0, ROUND_EVERY_S, TimeUnit.SECONDS);
         }
         return START_STICKY;
     }
@@ -145,30 +145,47 @@ public class BridgeService extends Service {
         h.at = System.currentTimeMillis();
     }
 
+    /** One round: listen for a while, stop, send what was heard. */
+    private void round() {
+        if (startScan()) {
+            try {
+                Thread.sleep(LISTEN_S * 1000);
+            } catch (InterruptedException e) {
+                return; // stopping
+            }
+            stopScan();
+            scanState = "Listened at " + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date())
+                    + ". Listens again every " + ROUND_EVERY_S / 60 + " minutes.";
+        }
+        upload();
+    }
+
     @SuppressLint("MissingPermission") // asked for on the main screen; a refusal shows up as an error here
-    private synchronized void restartScan() {
+    private synchronized boolean startScan() {
         stopScan();
         BluetoothManager bm = getSystemService(BluetoothManager.class);
         BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
         if (adapter == null || !adapter.isEnabled()) {
-            scanState = "Bluetooth is off. Turn it on and the app starts listening within 15 minutes.";
-            return;
+            scanState = "Bluetooth is off. Turn it on and the app listens again within 5 minutes.";
+            return false;
         }
         scanner = adapter.getBluetoothLeScanner();
         if (scanner == null) {
             scanState = "Bluetooth isn't ready yet.";
-            return;
+            return false;
         }
         // A filter is needed for scanning to go on with the screen off.
         List<ScanFilter> filters = new ArrayList<>();
         filters.add(new ScanFilter.Builder().setManufacturerData(VICTRON, new byte[] {0x10}).build());
-        ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build();
+        ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
         try {
             scanner.startScan(filters, settings, callback);
-            scanState = "Listening since " + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date());
+            scanState = "Listening now";
+            return true;
         } catch (SecurityException e) {
             scanState = "No permission to use Bluetooth. Open the app and allow it.";
             scanner = null;
+            return false;
         }
     }
 
