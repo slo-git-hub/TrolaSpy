@@ -53,3 +53,17 @@ jobs:
           q "All readings per 10 min, last 24h (when LeafSpy was uploading)" \
             "SELECT ROUND((ts/600000 - (strftime('%s','now') - 86400) / 600) / 6.0, 1) AS hours_ago_rev, COUNT(*) n, MAX(chrg_mode) mode, ROUND(MIN(soc)) soc_min, ROUND(MAX(soc)) soc_max
                FROM readings WHERE ts >= (strftime('%s','now') - 86400) * 1000 GROUP BY ts/600000 ORDER BY 1"
+          NOW="strftime('%s','now') * 1000"
+          q "Victron: bridge app's last upload" \
+            "SELECT json_extract(value,'$.app') app, ROUND(($NOW - json_extract(value,'$.ts')) / 60000.0, 1) min_ago, json_array_length(value,'$.devices') devices
+               FROM settings WHERE key = 'bridge'"
+          q "Victron: devices heard (no addresses or names)" \
+            "SELECT json_extract(d.value,'$.kind') kind, json_extract(d.value,'$.model') model, json_extract(d.value,'$.read') read, json_extract(d.value,'$.rssi') rssi,
+                    ROUND(($NOW - json_extract(d.value,'$.heard_ts')) / 60000.0, 1) heard_min_ago
+               FROM settings s, json_each(s.value, '$.devices') d WHERE s.key = 'bridge'"
+          q "Victron: keys saved (lengths only)" \
+            "SELECT length(json_extract(value,'$.solar')) solar_key_len, length(json_extract(value,'$.dcdc')) dcdc_key_len FROM settings WHERE key = 'victron'"
+          q "Victron: stored readings per kind" \
+            "SELECT kind, COUNT(*) n, ROUND(($NOW - MAX(ts)) / 60000.0, 1) last_min_ago FROM victron GROUP BY kind"
+          q "Victron: last DC-DC readings" \
+            "SELECT ROUND(($NOW - ts) / 60000.0, 1) min_ago, state, error, in_v, out_v, off_reason FROM victron WHERE kind = 'dcdc' ORDER BY ts DESC LIMIT 5"
