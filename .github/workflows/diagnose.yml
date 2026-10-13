@@ -20,52 +20,39 @@ jobs:
         run: |
           q() { echo "== $1"; npx wrangler d1 execute trolaspy --remote --json --command "$2" | jq -c '.[0].results[]'; }
           SINCE="(strftime('%s','now') - 3*86400) * 1000"
-          q "Outside temperature: suspicious values (above 45 or below -30 C)" \
-            "SELECT amb_temp, COUNT(*) n, GROUP_CONCAT(DISTINCT pwr_sw) pwr, GROUP_CONCAT(DISTINCT chrg_mode) modes, MAX(speed) max_speed,
-                    ROUND(MIN(bat_temp),1) bat_min, ROUND(MAX(bat_temp),1) bat_max,
-                    ROUND((strftime('%s','now')*1000 - MAX(ts)) / 3600000.0, 1) last_h_ago
-             FROM readings WHERE amb_temp > 45 OR amb_temp < -30 GROUP BY amb_temp ORDER BY n DESC LIMIT 20"
-          q "Outside temperature per hour, last 3 days" \
-            "SELECT ROUND((strftime('%s','now')*1000 - MAX(ts)) / 3600000.0, 1) h_ago, COUNT(*) n, MIN(amb_temp) amb_min, MAX(amb_temp) amb_max,
-                    ROUND(MIN(bat_temp),1) bat_min, ROUND(MAX(bat_temp),1) bat_max, GROUP_CONCAT(DISTINCT pwr_sw) pwr, MAX(chrg_mode) mode
-             FROM readings WHERE ts >= $SINCE GROUP BY ts / 3600000 ORDER BY MAX(ts) DESC LIMIT 72"
-          q "Last 40 readings (no positions)" \
-            "SELECT ROUND((strftime('%s','now')*1000 - ts) / 60000.0) min_ago, amb_temp, bat_temp, pwr_sw, chrg_mode, plug_state, speed, soc
-             FROM readings ORDER BY ts DESC LIMIT 40"
-          q "Driving: speed vs rpm (rows with speed > 3)" \
-            "SELECT COUNT(*) n, ROUND(AVG(speed),1) avg_speed, ROUND(MAX(speed),1) max_speed, ROUND(AVG(rpm*1.0/speed),1) rpm_per_speed FROM readings WHERE ts >= $SINCE AND speed > 3 AND rpm > 0"
-          q "Driving: distance from speed x time vs odometer, per hour" \
-            "WITH r AS (SELECT ts, speed, odo, ts - LAG(ts) OVER (ORDER BY ts) dt FROM readings WHERE ts >= $SINCE)
-             SELECT ts/3600000 % 1000 hr, COUNT(*) n, ROUND(SUM(CASE WHEN dt <= 60000 THEN speed*dt END)/3600000.0, 2) speed_x_time, MAX(odo)-MIN(odo) odo_km
-             FROM r GROUP BY ts/3600000 HAVING odo_km > 0 ORDER BY 1 DESC LIMIT 12"
-          q "Charging, per hour (current going in, car not in drive)" \
-            "SELECT ts/3600000 % 1000 hr, COUNT(*) n, GROUP_CONCAT(DISTINCT chrg_mode) modes, GROUP_CONCAT(DISTINCT plug_state) plug, GROUP_CONCAT(DISTINCT pwr_sw) pwr,
-                    ROUND(AVG(chrg_pwr)) avg_chrg_pwr, ROUND(MAX(chrg_pwr)) max_chrg_pwr,
-                    ROUND(AVG(-bat_volts*bat_amps)) avg_va_in, ROUND(MAX(-bat_volts*bat_amps)) max_va_in, ROUND(MIN(bat_amps),1) min_amps
-             FROM readings WHERE ts >= $SINCE AND (chrg_mode > 0 OR bat_amps < -5) AND COALESCE(speed,0) < 1
-             GROUP BY ts/3600000 ORDER BY 1 DESC LIMIT 24"
-          q "Charging readings, last 24h (minutes from first; no positions)" \
-            "WITH c AS (SELECT ts, soc, gids, chrg_mode, plug_state, pwr_sw, bat_volts, bat_amps, chrg_pwr FROM readings
-                         WHERE ts >= (strftime('%s','now') - 86400) * 1000 AND (chrg_mode > 0 OR bat_amps < -3))
-             SELECT ROUND((ts - (SELECT MIN(ts) FROM c)) / 60000.0, 1) AS min, ROUND((ts - LAG(ts) OVER (ORDER BY ts)) / 1000.0) AS gap_s,
-                    soc, gids, chrg_mode AS mode, plug_state AS plug, pwr_sw AS pwr, ROUND(-bat_volts * bat_amps) AS w_in, chrg_pwr
-               FROM c ORDER BY ts LIMIT 200"
-          q "All readings per 10 min, last 24h (when LeafSpy was uploading)" \
-            "SELECT ROUND((ts/600000 - (strftime('%s','now') - 86400) / 600) / 6.0, 1) AS hours_ago_rev, COUNT(*) n, MAX(chrg_mode) mode, ROUND(MIN(soc)) soc_min, ROUND(MAX(soc)) soc_max
-               FROM readings WHERE ts >= (strftime('%s','now') - 86400) * 1000 GROUP BY ts/600000 ORDER BY 1"
-          NOW="strftime('%s','now') * 1000"
-          q "Victron: bridge app's last upload" \
-            "SELECT json_extract(value,'$.app') app, ROUND(($NOW - json_extract(value,'$.ts')) / 60000.0, 1) min_ago, json_array_length(value,'$.devices') devices
-               FROM settings WHERE key = 'bridge'"
-          q "Victron: devices heard (no addresses or names)" \
-            "SELECT json_extract(d.value,'$.kind') kind, json_extract(d.value,'$.model') model, json_extract(d.value,'$.read') read, json_extract(d.value,'$.rssi') rssi,
-                    ROUND(($NOW - json_extract(d.value,'$.heard_ts')) / 60000.0, 1) heard_min_ago
-               FROM settings s, json_each(s.value, '$.devices') d WHERE s.key = 'bridge'"
-          q "Victron: keys saved (lengths only)" \
-            "SELECT length(json_extract(value,'$.solar')) solar_key_len, length(json_extract(value,'$.dcdc')) dcdc_key_len FROM settings WHERE key = 'victron'"
-          q "Victron: stored readings per kind" \
-            "SELECT kind, COUNT(*) n, ROUND(($NOW - MAX(ts)) / 60000.0, 1) last_min_ago FROM victron GROUP BY kind"
-          q "Victron: last DC-DC readings" \
-            "SELECT ROUND(($NOW - ts) / 60000.0, 1) min_ago, state, error, in_v, out_v, off_reason FROM victron WHERE kind = 'dcdc' ORDER BY ts DESC LIMIT 5"
-          q "Victron: solar readings, last 12h" \
-            "SELECT ROUND(($NOW - ts) / 60000.0) min_ago, state, batt_v, batt_a, pv_w, yield_wh FROM victron WHERE kind = 'solar' AND ts >= $NOW - 43200000 ORDER BY ts DESC LIMIT 60"
+          D14="(strftime('%s','now') - 14*86400) * 1000"
+          q "Energy per UTC day, live formula (kWh)" \
+            "WITH r AS (SELECT ts, odo, speed, pwr_sw, COALESCE(chrg_mode,0) cm, plug_state, gids, soc, bat_volts*bat_amps w, ts - LAG(ts) OVER (ORDER BY ts) dt FROM readings WHERE ts >= $D14)
+             SELECT date(ts/1000,'unixepoch') day, COUNT(*) n, MAX(odo)-MIN(odo) km,
+                    ROUND(SUM(CASE WHEN dt<=150000 AND w>0 AND cm=0 THEN w*dt END)/3.6e9,2) used,
+                    ROUND(SUM(CASE WHEN dt<=150000 AND w<0 AND cm=0 AND pwr_sw=1 THEN -w*dt END)/3.6e9,2) regen,
+                    ROUND(SUM(CASE WHEN dt<=150000 AND w>0 AND cm=0 AND speed>1 THEN w*dt END)/3.6e9,2) used_moving,
+                    ROUND(SUM(CASE WHEN dt<=150000 AND w>0 AND cm=0 AND COALESCE(pwr_sw,0)=0 THEN w*dt END)/3.6e9,2) used_car_off,
+                    ROUND(SUM(CASE WHEN dt<=150000 AND w>0 AND cm=0 AND plug_state>0 THEN w*dt END)/3.6e9,2) used_plugged,
+                    ROUND(SUM(CASE WHEN dt<=150000 AND w>0 AND cm=0 AND COALESCE(speed,0)<=1 AND pwr_sw=1 THEN w*dt END)/3.6e9,2) used_standing_on,
+                    ROUND(AVG(CASE WHEN dt<=150000 THEN dt END)/1000.0,1) avg_dt_s, ROUND(MAX(w)) max_w, MIN(gids) gmin, MAX(gids) gmax
+             FROM r GROUP BY day ORDER BY day DESC"
+          q "Stored daily summaries" \
+            "SELECT day, readings, distance_km, ROUND(used_kwh,2) used, ROUND(regen_kwh,2) regen, ROUND(charged_kwh,2) charged, computed_ts FROM daily ORDER BY day DESC LIMIT 14"
+          q "Driving rows, last 14 days: volts and amps" \
+            "SELECT COUNT(*) n, ROUND(MIN(bat_volts),1) v_min, ROUND(AVG(bat_volts),1) v_avg, ROUND(MAX(bat_volts),1) v_max,
+                    ROUND(MIN(bat_amps),1) a_min, ROUND(AVG(bat_amps),1) a_avg, ROUND(MAX(bat_amps),1) a_max, SUM(bat_amps > 400) a_over_400
+             FROM readings WHERE ts >= $D14 AND speed > 1"
+          q "Gap between readings while driving (seconds)" \
+            "WITH r AS (SELECT speed, ts - LAG(ts) OVER (ORDER BY ts) dt FROM readings WHERE ts >= $D14)
+             SELECT CASE WHEN dt < 5000 THEN '<5' WHEN dt < 15000 THEN '5-15' WHEN dt < 40000 THEN '15-40' WHEN dt < 150000 THEN '40-150' ELSE '>150' END gap, COUNT(*) n
+             FROM r WHERE speed > 1 GROUP BY gap"
+          q "Same-second duplicates (two rows within 1 s)" \
+            "WITH r AS (SELECT ts - LAG(ts) OVER (ORDER BY ts) dt, seq, LAG(seq) OVER (ORDER BY ts) pseq FROM readings WHERE ts >= $D14)
+             SELECT COUNT(*) n, SUM(seq = pseq) same_seq FROM r WHERE dt < 1000"
+          q "Latest drives: rows (minutes ago, no positions)" \
+            "SELECT ROUND((strftime('%s','now')*1000 - ts)/60000.0) min_ago, ROUND((ts - LAG(ts) OVER (ORDER BY ts))/1000.0) gap_s, speed, pwr_sw, chrg_mode cm, plug_state plug,
+                    bat_volts v, bat_amps a, ROUND(bat_volts*bat_amps) w, soc, gids, odo, seq
+             FROM readings WHERE ts >= (strftime('%s','now') - 2*86400) * 1000 AND (speed > 1 OR pwr_sw = 1) ORDER BY ts DESC LIMIT 80"
+          q "SoC vs gids (per 5% of LeafSpy SoC, last 120 days)" \
+            "SELECT CAST(soc/5 AS INTEGER)*5 soc5, COUNT(*) n, ROUND(AVG(soc),1) soc, ROUND(AVG(gids)) gids, MIN(gids) gmin, MAX(gids) gmax, ROUND(AVG(soh),1) soh, ROUND(AVG(hx),1) hx, ROUND(AVG(ahr),1) ahr
+             FROM readings WHERE ts >= (strftime('%s','now') - 120*86400) * 1000 AND soc > 0 AND gids > 0 GROUP BY soc5 ORDER BY soc5"
+          q "Highest and lowest SoC seen" \
+            "SELECT MIN(soc) soc_min, MAX(soc) soc_max, MIN(gids) gids_min, MAX(gids) gids_max FROM readings WHERE soc > 0"
+          q "Last 10 readings: SoC and gids" \
+            "SELECT ROUND((strftime('%s','now')*1000 - ts)/60000.0) min_ago, soc, gids, pwr_sw, chrg_mode, bat_volts FROM readings ORDER BY ts DESC LIMIT 10"
