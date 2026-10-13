@@ -1085,6 +1085,16 @@ const offText = (bits) => [...new Set(Object.entries(VOFF).filter(([b]) => bits 
 const wh = (v) => (v === null || v === undefined ? '–' : v >= 1000 ? `${n(v / 1000, 2)}<small>kWh</small>` : `${Math.round(v)}<small>Wh</small>`);
 let solarData = null, solarKey = 'pv_w';
 
+// Leisure battery (LiFePO4) charge, estimated from its voltage by the server.
+const leisurePct = (L) => (!L ? '–' : L.basis === 'full' ? 'Full' : L.percent === null ? 'Charging' : `≈${L.percent}<small>%</small>`);
+function leisureText(L) {
+  const of = `(${L.ah} of ${L.capacity_ah} Ah)`, high = 'The voltage reads high while charging.';
+  if (L.basis === 'full') return `Leisure battery <b>full</b>: the ${L.by === 'dcdc' ? 'DC-DC' : 'solar'} charger has finished and holds it there.`;
+  if (L.basis === 'now') return `Leisure battery about <b>${L.percent}%</b> ${of}, estimated from its voltage.`;
+  if (L.basis === 'rest') return `Leisure battery was about <b>${L.percent}%</b> ${of} at ${new Date(L.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, before charging started. ${high}`;
+  return `Leisure battery is charging. ${high}`;
+}
+
 async function loadSolar() {
   try { solarData = await fetch(`/api/solar?hours=${hours}`).then((r) => r.json()); } catch { return; }
   renderSolar();
@@ -1100,11 +1110,12 @@ function renderSolar() {
   const items = [
     ['Solar now', n(s.pv_w), 'W'],
     ['Solar today', today ? wh(today.wh) : wh(s.yield_wh), ''],
-    ['Leisure battery', n(s.batt_v, 2), 'V'],
-    ['Charging', n(Math.max(0, s.batt_a || 0), 1), 'A'],
+    ['Leisure battery', leisurePct(d.leisure), ''],
+    ['Battery voltage', n(s.batt_v, 2), 'V'],
   ];
   $('solarstats').innerHTML = items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}${u ? `<small>${u}</small>` : ''}</b></div>`).join('');
-  $('solarstate').innerHTML = `Solar charger <b>${VSTATE[s.state] || 'Unknown'}</b>${s.batt_a > 0 ? `, ${n(s.batt_a, 1)} A into the leisure battery` : ''}`;
+  $('solarstate').innerHTML = `Solar charger <b>${VSTATE[s.state] || 'Unknown'}</b>${s.batt_a > 0 ? `, ${n(s.batt_a, 1)} A into the leisure battery` : ''}`
+    + (d.leisure ? `<br>${leisureText(d.leisure)}` : '');
   const cfg = { pv_w: { color: '--s-solar', unit: ' W', digits: 0, name: 'Solar power', zero: true }, batt_v: { color: '--batt', unit: ' V', digits: 2, name: 'Leisure battery' } }[solarKey];
   $('solarlegend').innerHTML = `<span><i style="background:var(${cfg.color})"></i>${cfg.name}</span>`;
   const pts = d.points.filter((p) => p[solarKey] !== null).map((p) => ({ t: p.ts, v: p[solarKey] }));

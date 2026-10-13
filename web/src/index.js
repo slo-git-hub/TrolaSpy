@@ -9,6 +9,7 @@ import { listSessions } from '../../shared/charges.js';
 import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js';
 import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
+import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -78,7 +79,7 @@ async function solar(env, hours) {
   const now = Date.now(), since = now - hours * 3600e3, month = now - 30 * 864e5;
   const bucketMs = Math.max(60_000, Math.ceil((hours * 3600e3) / 600));
   const one = (kind) => env.DB.prepare('SELECT * FROM victron WHERE kind = ? ORDER BY ts DESC LIMIT 1').bind(kind).first();
-  const [sol, dcdc, pts, days, dpts, runs] = await Promise.all([
+  const [sol, dcdc, pts, days, dpts, runs, rest] = await Promise.all([
     one('solar'), one('dcdc'),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(pv_w)) AS pv_w, ROUND(AVG(batt_v), 2) AS batt_v
                       FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / ? ORDER BY ts`).bind(since, bucketMs).all(),
@@ -89,9 +90,15 @@ async function solar(env, hours) {
     env.DB.prepare(`WITH r AS (SELECT ts, state, LEAD(ts) OVER (ORDER BY ts) AS nx FROM victron WHERE kind = 'dcdc' AND ts >= ?1)
                     SELECT ts / 86400000 AS d, SUM(MIN(COALESCE(nx, ?2), ts + ?3) - ts) AS on_ms FROM r
                      WHERE state > 0 GROUP BY d ORDER BY d`).bind(month, now, RUN_GAP_MS).all(),
+    // The leisure battery's newest voltage while neither charger was charging it (last 24 h).
+    env.DB.prepare(`SELECT ts, batt_v FROM victron s
+                     WHERE kind = 'solar' AND ts >= ?1 AND batt_v > 0 AND COALESCE(batt_a, 0) < ${CHARGING_A} AND COALESCE(state, 0) NOT IN (${HELD.join(', ')})
+                       AND COALESCE((SELECT state FROM victron d WHERE d.kind = 'dcdc' AND d.ts <= s.ts AND d.ts > s.ts - ?2
+                                       ORDER BY d.ts DESC LIMIT 1), 0) = 0
+                     ORDER BY ts DESC LIMIT 1`).bind(now - 864e5, RUN_GAP_MS).first(),
   ]);
   return {
-    solar: sol, dcdc, points: pts.results, dcdc_points: dpts.results,
+    solar: sol, dcdc, points: pts.results, dcdc_points: dpts.results, leisure: leisureCharge(sol, dcdc, rest),
     days: days.results.map((r) => ({ day: dayKey(r.d * 864e5), wh: r.wh })),
     dcdc_days: runs.results.map((r) => ({ day: dayKey(r.d * 864e5), on_ms: r.on_ms })),
   };
