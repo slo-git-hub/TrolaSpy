@@ -5,11 +5,20 @@ import { createVapidKeys } from '../../shared/push.js';
 import { DETAIL_KM, DELAYS_H, publicSettings } from '../../shared/public.js';
 import { ensureDays, forgetDays } from '../../shared/stats.js';
 import { archiveSessions } from '../../shared/charges.js';
+import { addSocPoint, dashSoc, socPoints } from '../../shared/soc.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
 const EXPORT_PAGE = 2000;
+// A dashboard reading is paired with LeafSpy's newest SOC, so that must be this fresh.
+const SOC_FRESH_MS = 15 * 60 * 1000;
+
+// Dashboard readings (see soc.js) and what LeafSpy reads now.
+async function socCalInfo(db, cal) {
+  const now = await db.prepare('SELECT ts, soc FROM readings WHERE soc > 0 ORDER BY ts DESC LIMIT 1').first();
+  return { points: socPoints(cal).slice(0, -1), now: now && { ...now, dash: dashSoc(now.soc, cal) } };
+}
 const IMPORT_MAX = 500;
 
 // TrolaSpy's own key pair for signing alerts, made the first time the admin page asks.
@@ -52,11 +61,12 @@ export async function handleAdmin(request, env, url) {
   const method = request.method;
 
   if (path === 'settings' && method === 'GET') {
-    const s = await getSettings(db, ['alerts', 'price', 'push_subs', 'victron', 'bridge']);
+    const s = await getSettings(db, ['alerts', 'price', 'push_subs', 'victron', 'bridge', 'soc_cal']);
     return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null,
       push_key: (await vapid(db, url)).publicKey, devices: devices(s.push_subs),
       public: await publicSettings(db), public_url: publicUrl(env, url),
-      victron: { solar: '', dcdc: '', ...(s.victron || {}) }, bridge: s.bridge || null, ingest_url: ingestUrl(env, url) });
+      victron: { solar: '', dcdc: '', ...(s.victron || {}) }, bridge: s.bridge || null, ingest_url: ingestUrl(env, url),
+      soc_cal: await socCalInfo(db, s.soc_cal) });
   }
   if (path === 'settings' && method === 'PUT') {
     const body = await request.json();
@@ -69,6 +79,22 @@ export async function handleAdmin(request, env, url) {
     const price = body.price === null || body.price === '' ? null : Math.max(0, Number(body.price)) || 0;
     await Promise.all([putSetting(db, 'alerts', alerts), putSetting(db, 'price', price)]);
     return json({ ok: true, alerts, price });
+  }
+  // Body { dash }: the dashboard shows this % now. Body { remove }: drop the reading at that LeafSpy %.
+  if (path === 'soc-cal' && method === 'PUT') {
+    const b = await request.json();
+    let cal = socPoints((await getSettings(db, ['soc_cal'])).soc_cal).slice(0, -1);
+    if (b.remove !== undefined) cal = cal.filter(([l]) => l !== Number(b.remove));
+    else {
+      const dash = Number(b.dash);
+      if (b.dash === '' || b.dash === null || !(dash >= 0 && dash <= 100)) return json({ error: 'Enter the % the dashboard shows, 0 to 100.' }, 400);
+      const now = await db.prepare('SELECT ts, soc FROM readings WHERE soc > 0 ORDER BY ts DESC LIMIT 1').first();
+      if (!now || Date.now() - now.ts > SOC_FRESH_MS) return json({ error: 'LeafSpy has not sent the battery % in the last 15 minutes. Try again with the car on and LeafSpy running.' }, 409);
+      if (now.soc >= 100) return json({ error: 'LeafSpy reads 100 %, which already matches the dashboard.' }, 400);
+      cal = addSocPoint(cal, now.soc, dash);
+    }
+    await putSetting(db, 'soc_cal', cal);
+    return json(await socCalInfo(db, cal));
   }
   if (path === 'public' && method === 'PUT') {
     const b = await request.json();

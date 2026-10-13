@@ -13,6 +13,7 @@ import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js'
 import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
+import { dashSoc } from '../../shared/soc.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -35,8 +36,11 @@ const missing = (k, v) => v === null || v === undefined || (v === 0 && !k.endsWi
 // newest current measured in the last CHARGE_FILL_MS of the charge is shown instead.
 const CHARGE_FILL_MS = 20 * 60 * 1000;
 
+// Battery % is shown as the dashboard shows it (see soc.js); `soc_leafspy` keeps LeafSpy's own.
+const socCal = async (env) => (await getSettings(env.DB, ['soc_cal'])).soc_cal;
+
 async function latest(env) {
-  const row = await env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first();
+  const [row, cal] = await Promise.all([env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first(), socCal(env)]);
   for (const group of row ? CAR_FIELDS : []) {
     if (!group.some((k) => missing(k, row[k]))) continue;
     const known = await env.DB.prepare(`SELECT ${group.join(', ')} FROM readings WHERE ${group[0]} > 0 ORDER BY ts DESC LIMIT 1`).first();
@@ -49,6 +53,7 @@ async function latest(env) {
     ).bind(row.ts - CHARGE_FILL_MS, row.ts).first();
     Object.assign(row, known || { bat_amps: null });
   }
+  if (row) Object.assign(row, { soc_leafspy: row.soc, soc: dashSoc(row.soc, cal) });
   // Last known position, in case the newest upload had no GPS fix.
   const pos = row && row.lat === null
     ? await env.DB.prepare('SELECT ts, lat, lon FROM readings WHERE lat IS NOT NULL ORDER BY ts DESC LIMIT 1').first()
@@ -61,14 +66,15 @@ async function track(env, hours) {
   // Downsample so long ranges stay light: one point per bucket.
   const bucketMs = Math.max(10_000, Math.ceil((hours * 3600 * 1000) / MAX_POINTS));
   // No power for charging readings that came without the battery current, so the chart skips them.
-  const { results } = await env.DB.prepare(
+  const [{ results }, cal] = await Promise.all([env.DB.prepare(
     `SELECT MIN(ts) AS ts, lat, lon, NULLIF(soc, 0) AS soc, speed, chrg_pwr, pwr_sw, bat_temp, amb_temp,
             CASE WHEN chrg_mode > 0 AND COALESCE(bat_volts * bat_amps, 0) = 0 THEN NULL
                  ELSE ROUND(bat_volts * bat_amps / 1000.0, 2) END AS kw
        FROM readings WHERE ts >= ?
       GROUP BY ts / CAST(? AS INTEGER)
       ORDER BY ts`
-  ).bind(since, bucketMs).all();
+  ).bind(since, bucketMs).all(), socCal(env)]);
+  for (const p of results) p.soc = dashSoc(p.soc, cal);
   return { since, bucketMs, points: results };
 }
 
@@ -183,7 +189,11 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
     if (url.pathname === '/api/latest') return json(await latest(env));
-    if (url.pathname === '/api/charges') return json({ sessions: await listSessions(env.DB) });
+    if (url.pathname === '/api/charges') {
+      const [sessions, cal] = await Promise.all([listSessions(env.DB), socCal(env)]);
+      for (const c of sessions) Object.assign(c, { soc_start: dashSoc(c.soc_start, cal), soc_end: dashSoc(c.soc_end, cal) });
+      return json({ sessions });
+    }
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await track(env, hours));

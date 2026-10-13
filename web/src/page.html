@@ -75,6 +75,7 @@
   .ring .num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
   .ring b { font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
   .ring small { color: var(--muted); font-size: 12px; }
+  .ring #socraw { font-size: 10.5px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
     font-size: 13px; background: var(--off); color: var(--muted); }
@@ -399,7 +400,7 @@
     <div class="hero">
       <div class="ring" id="ring">
         <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="val" id="ringval" cx="60" cy="60" r="50" stroke-dasharray="314.16" stroke-dashoffset="314.16"/></svg>
-        <div class="num"><b id="soc">–</b><small id="gids"></small></div>
+        <div class="num"><b id="soc">–</b><small id="socraw"></small><small id="gids"></small></div>
       </div>
       <div>
         <div class="chips" id="chips"></div>
@@ -532,6 +533,13 @@
         <div class="seg" id="hltab"><button data-k="soh" class="active">SOH</button><button data-k="hx">Hx</button><button data-k="ahr">Capacity</button></div></div>
       <div class="chart" id="hlchart"></div>
       <div class="note">One point per day. SOH and Hx are LeafSpy's battery health figures; capacity is the pack's usable amp-hours (AHr).</div>
+      <h3>Battery % like the dashboard</h3>
+      <div class="note">LeafSpy reads the battery computer's own %, which counts a reserve the dashboard hides, so LeafSpy reads higher,
+        most of all when the battery is low. TrolaSpy shows the dashboard's % instead, worked out from readings of the dashboard.
+        Add one whenever the battery is at a level you haven't given yet, ideally low, middle and nearly full. <span id="sc-now"></span></div>
+      <div class="row">The dashboard shows <input type="number" id="sc-dash" min="0" max="100" step="1">% now
+        <button class="btn primary" id="sc-save">Save</button><span class="msg" id="sc-msg"></span></div>
+      <div class="heard" id="sc-list"></div>
     </div>
     <div class="adm" id="adm-data" hidden>
       <div class="note" id="dt-sum">Loading…</div>
@@ -612,6 +620,8 @@ function renderLatest({ reading: r, lastPosition, co2_g_per_km: co2g }) {
 
   const soc = Math.max(0, Math.min(100, r.soc || 0));
   $('soc').textContent = r.soc === null ? '–' : `${Math.round(r.soc)}%`;
+  // The big % is the dashboard's (worked out on the server); LeafSpy's own reading underneath.
+  $('socraw').textContent = r.soc_leafspy && Math.round(r.soc_leafspy) !== Math.round(r.soc) ? `LeafSpy ${Math.round(r.soc_leafspy)}%` : '';
   $('gids').textContent = r.gids !== null ? `${r.gids} Gids` : '';
   $('ringval').style.strokeDashoffset = 314.16 * (1 - soc / 100);
   $('ring').classList.toggle('charging', charging);
@@ -1711,7 +1721,7 @@ $('admtab').addEventListener('click', (e) => {
   document.querySelectorAll('#admtab button').forEach((b) => b.classList.toggle('active', b === e.target));
   ['alerts', 'health', 'data', 'public', 'victron'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
   if (t === 'victron') loadSettings();
-  if (t === 'health') loadHealth();
+  if (t === 'health') { loadHealth(); loadSettings(); }
   if (t === 'data') loadDataInfo();
 });
 
@@ -1724,8 +1734,30 @@ async function loadSettings() {
     showPublic(s.public, s.public_url);
     $('vk-server').textContent = s.ingest_url || 'address of your trolaspy-ingest Worker';
     $('vk-solar').value = s.victron.solar; $('vk-dcdc').value = s.victron.dcdc; showHeard(s.bridge, s.victron);
+    showSocCal(s.soc_cal);
   } catch (e) { say('al-msg', e.message); }
 }
+
+// Dashboard readings: each pairs LeafSpy's % with what the dashboard showed at the time.
+function showSocCal({ points, now }) {
+  $('sc-now').textContent = now ? `LeafSpy read ${n(now.soc, 1)}% ${ago(now.ts)}, shown here as ${Math.round(now.dash)}%.` : '';
+  $('sc-list').innerHTML = points.length
+    ? points.map(([l, d]) => `<span>LeafSpy ${n(l, 1)}% = dashboard ${d}% · <a href="#" data-remove="${l}">Remove</a></span>`).join('')
+    : '<span>No dashboard readings, so LeafSpy\'s own % is shown.</span>';
+}
+$('sc-save').addEventListener('click', async () => {
+  say('sc-msg', 'Saving…');
+  try {
+    showSocCal(await api('soc-cal', { method: 'PUT', body: JSON.stringify({ dash: $('sc-dash').value }) }));
+    $('sc-dash').value = ''; say('sc-msg', 'Saved. The battery % everywhere uses it now.'); refresh(true); loadCharges();
+  } catch (e) { say('sc-msg', e.message); }
+});
+$('sc-list').addEventListener('click', async (e) => {
+  const l = e.target.dataset && e.target.dataset.remove; if (l === undefined) return;
+  e.preventDefault();
+  try { showSocCal(await api('soc-cal', { method: 'PUT', body: JSON.stringify({ remove: Number(l) }) })); say('sc-msg', 'Removed.'); refresh(true); loadCharges(); }
+  catch (err) { say('sc-msg', err.message); }
+});
 
 // What the Bridge app last reported hearing, and whether the saved keys read it.
 function showHeard(b, keys) {

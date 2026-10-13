@@ -94,7 +94,9 @@ jobs:
             UPDATE readings SET odo = NULL WHERE odo = 0;
             UPDATE readings SET amb_temp = NULL WHERE amb_temp > 60 OR amb_temp < -45;
             UPDATE readings SET bat_temp = NULL WHERE bat_temp > 80 OR bat_temp < -40;
-            DELETE FROM daily WHERE amb_max > 60 OR amb_min < -45;"
+            UPDATE readings SET bat_amps = NULL WHERE ABS(bat_amps) > 500;
+            UPDATE readings SET bat_volts = NULL WHERE bat_volts < 150 OR bat_volts > 450;
+            DELETE FROM daily WHERE amb_max > 60 OR amb_min < -45 OR used_kwh > 300;"
 
       - name: Set LeafSpy login
         if: steps.check.outputs.ready == 'true'
