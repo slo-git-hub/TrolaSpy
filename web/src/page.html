@@ -237,6 +237,53 @@
     background: var(--solid); color: var(--text); }
   .uploader .row { display: flex; gap: 6px; align-items: center; }
   .uploader .count { margin-left: auto; font-size: 12px; color: var(--faint); }
+  /* Photo picker: a folder's photos, large, by day, with checkmarks. */
+  .picker { position: fixed; inset: 0; z-index: 1800; background: var(--bg); display: none; flex-direction: column; --pk: 200px; }
+  .picker.open { display: flex; }
+  .pk-head, .pk-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 16px; background: var(--solid); }
+  .pk-head { border-bottom: 1px solid var(--line); padding-top: calc(10px + env(safe-area-inset-top)); }
+  .pk-head h2 { margin: 0 auto 0 0; font-size: 17px; }
+  .pk-head label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .pk-head label[hidden] { display: none; }
+  .pk-head input[type=range] { width: 110px; accent-color: var(--accent); }
+  .pk-head input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+  .pk-body { flex: 1; overflow: auto; padding: 0 16px 16px; }
+  .picker.drag .pk-body { outline: 3px dashed var(--accent); outline-offset: -8px; }
+  .pk-empty { max-width: 460px; margin: 18vh auto 0; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .pk-empty b { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+  .pk-day h3 { position: sticky; top: 0; z-index: 2; background: var(--bg); display: flex; align-items: center; gap: 8px;
+    margin: 0; padding: 14px 0 8px; font-size: 14px; }
+  .pk-day h3 .tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); }
+  .pk-day h3 .n { color: var(--faint); font-weight: 500; font-size: 12px; }
+  .pk-day h3 button { margin-left: auto; border: 0; background: none; color: var(--accent-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .pk-day[hidden] { display: none; }
+  .pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--pk), 1fr)); gap: 6px; }
+  .pk-tile { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: var(--off); cursor: pointer; outline: none; }
+  .pk-tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .12s, border-radius .12s; }
+  .pk-tile .nm { position: absolute; inset: auto 8px 30px; font-size: 11px; color: var(--muted); word-break: break-all; text-align: center; }
+  .pk-tile .ck { position: absolute; top: 8px; left: 8px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff;
+    background: rgba(0,0,0,.25); box-shadow: 0 1px 4px rgba(0,0,0,.4); display: grid; place-items: center; }
+  .pk-tile.on { background: var(--accent-soft); }
+  .pk-tile.on img { transform: scale(.9); border-radius: 8px; }
+  .pk-tile.on .ck { background: var(--accent); border-color: #fff; }
+  .pk-tile.on .ck::after { content: ''; width: 11px; height: 6px; border-left: 2.5px solid #fff; border-bottom: 2.5px solid #fff; transform: translateY(-2px) rotate(-45deg); }
+  .pk-tile:focus-visible { box-shadow: 0 0 0 3px var(--accent); }
+  .pk-tile .tm, .pk-tile .done { position: absolute; bottom: 7px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+  .pk-tile .tm { left: 9px; }
+  .pk-tile .done { right: 8px; background: var(--batt); padding: 1px 7px; border-radius: 7px; text-shadow: none; }
+  .pk-tile .zoom { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 8px; border: 0; padding: 0;
+    background: rgba(0,0,0,.45); color: #fff; display: grid; place-items: center; cursor: zoom-in; opacity: 0; transition: opacity .12s; }
+  .pk-tile .zoom svg { width: 16px; height: 16px; }
+  .pk-tile:hover .zoom, .pk-tile:focus-visible .zoom { opacity: 1; }
+  @media (hover: none) { .pk-tile .zoom { opacity: 1; } }
+  .pk-foot { border-top: 1px solid var(--line); padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .pk-foot #pk-count { margin-right: auto; color: var(--muted); font-size: 13px; }
+  .pk-prev { position: fixed; inset: 0; z-index: 1900; background: rgba(5,15,20,.92); display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; padding: 16px; }
+  .pk-prev.open { display: flex; outline: none; }
+  .pk-prev img { max-width: 100%; max-height: 80dvh; border-radius: 10px; }
+  .pk-prev .meta { color: #cfe0e5; font-size: 13px; text-align: center; }
+  .pk-prev .row { display: flex; gap: 8px; }
   #theme .sun, [data-theme="dark"] #theme .moon { display: none; }
   [data-theme="dark"] #theme .sun { display: block; }
 
@@ -274,6 +321,29 @@
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
 </button>
 <input type="file" id="photofile" accept="image/*" multiple hidden>
+<input type="file" id="pk-dirinput" webkitdirectory multiple hidden>
+<div class="picker" id="picker" role="dialog" aria-modal="true" aria-label="Choose photos">
+  <div class="pk-head">
+    <h2>Add photos</h2>
+    <button class="btn" id="pk-folder">Choose a folder</button>
+    <button class="btn" id="pk-files">Choose photos</button>
+    <label id="pk-drovelabel" hidden><input type="checkbox" id="pk-drove"> Only days Trola drove</label>
+    <label>Size <input type="range" id="pk-size" min="120" max="400" step="20" value="200"></label>
+    <button class="btn" id="pk-close" aria-label="Close">✕</button>
+  </div>
+  <div class="pk-body" id="pk-body"></div>
+  <div class="pk-foot">
+    <span id="pk-count"></span>
+    <button class="btn" id="pk-clear">Clear</button>
+    <button class="btn primary" id="pk-add" disabled>Add to map</button>
+  </div>
+</div>
+<div class="pk-prev" id="pk-prev" tabindex="-1">
+  <img id="pk-previmg" alt="">
+  <div class="meta" id="pk-prevmeta"></div>
+  <div class="row"><button class="btn" id="pk-prevback">‹</button><button class="btn primary" id="pk-prevpick">Select</button>
+    <button class="btn" id="pk-prevnext">›</button><button class="btn" id="pk-prevclose">Close</button></div>
+</div>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
   <button class="btn close" id="lbclose" aria-label="Close">✕</button>
   <img id="lbimg" alt="">
@@ -817,11 +887,21 @@ $('lbdelete').addEventListener('click', async () => {
 });
 
 // Shrink in the browser so uploads are quick and storage lasts: ~2000px photo, 400px thumbnail.
-async function shrink(file, max, quality) {
-  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+// Decoded image (ImageBitmap, or an <img> where only that can read the format, like HEIC in Safari).
+async function decode(file) {
+  try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { /* try an <img> */ }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image(); img.src = url; await img.decode();
+    return img;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function shrink(file, max, quality, cover = false) {
+  const bmp = await decode(file);
+  const w = bmp.naturalWidth || bmp.width, h = bmp.naturalHeight || bmp.height;
+  const k = Math.min(1, max / (cover ? Math.min(w, h) : Math.max(w, h)));
   const c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.width = Math.round(w * k); c.height = Math.round(h * k);
   c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close && bmp.close();
   const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', quality));
@@ -906,9 +986,13 @@ map.on('click', (e) => {
   $('upwhere').textContent = 'Placed on the map · drag the pin to adjust';
 });
 
-$('addphoto').addEventListener('click', () => $('photofile').click());
+// Phones have good photo pickers of their own; on a computer TrolaSpy shows its own (below).
+const coarse = matchMedia('(pointer: coarse)').matches;
+$('addphoto').addEventListener('click', () => (coarse ? $('photofile').click() : pkOpen()));
 $('photofile').addEventListener('change', (e) => {
-  up.queue = [...e.target.files]; up.i = 0; e.target.value = '';
+  const files = [...e.target.files]; e.target.value = '';
+  if ($('picker').classList.contains('open')) { pkAdd(files, true); return; }
+  up.queue = files; up.i = 0;
   if (up.queue.length) nextUpload();
 });
 $('upskip').addEventListener('click', () => { up.i++; nextUpload(); });
@@ -926,6 +1010,7 @@ $('upsave').addEventListener('click', async () => {
   try {
     const r = await fetch('/api/photos', { method: 'POST', body: fd });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    uploaded.add(up.queue[up.i]);
     up.i++;
     await nextUpload();
   } catch (err) {
@@ -935,6 +1020,247 @@ $('upsave').addEventListener('click', async () => {
   } finally {
     up.busy = false; $('upsave').textContent = 'Add to map';
   }
+});
+
+// ---------- Photo picker (on a computer) ----------
+// A folder's photos (say, pCloud's camera uploads) shown large, newest day first, with checkmarks.
+// A web page only sees files handed to it: a chosen folder, chosen photos, or ones dropped on it.
+// Nothing leaves the computer until a photo is added to the map.
+const pk = { items: [], last: -1, drove: new Map(), queue: [], loading: 0, obs: null, prev: -1, prevUrl: null };
+const uploaded = new WeakSet(); // files added to the map this visit
+const IMAGE_RE = /\.(jpe?g|png|webp|gif|heic|heif|avif)$/i;
+const ZOOM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
+const pad2 = (v) => String(v).padStart(2, '0');
+const localDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const longDay = (key) => new Date(`${key}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+// When it was taken: camera file names usually say (IMG_20261013_081522, PXL_…, 2026-10-13 08.15.22),
+// else the file's date. The photo's own date (EXIF) is read when it is added to the map.
+function fileTime(f) {
+  const m = f.name.match(/(20\d\d)-?(\d\d)-?(\d\d)[ _T-]?(\d\d)[.:-]?(\d\d)[.:-]?(\d\d)/);
+  if (m && m[2] >= 1 && m[2] <= 12 && m[3] >= 1 && m[3] <= 31 && m[4] < 24) {
+    const t = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+    if (t < Date.now() + 864e5) return t;
+  }
+  return f.lastModified || Date.now();
+}
+
+function pkAdd(files, checked, replace = false) {
+  if (replace) { pk.items.forEach((it) => it.thumb && URL.revokeObjectURL(it.thumb)); pk.items = []; pk.queue = []; }
+  const key = (f) => `${f.name}|${f.size}|${f.lastModified}`;
+  const seen = new Set(pk.items.map((it) => key(it.file)));
+  for (const f of files) {
+    if (f.name.startsWith('.') || !(f.type.startsWith('image/') || IMAGE_RE.test(f.name)) || seen.has(key(f))) continue;
+    seen.add(key(f));
+    pk.items.push({ file: f, t: fileTime(f), on: !!checked, thumb: null });
+  }
+  pk.items.sort((a, b) => b.t - a.t);
+  pk.last = -1;
+  pkRender();
+  pkLoadDrove();
+}
+
+function pkTile(it, i) {
+  const time = new Date(it.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return `<div class="pk-tile${it.on ? ' on' : ''}" data-i="${i}" role="checkbox" aria-checked="${it.on}" tabindex="0" title="${esc(it.file.name)}">`
+    + (it.thumb ? `<img src="${it.thumb}" alt="">` : `<span class="nm">${it.failed ? 'No preview · ' : ''}${esc(it.file.name)}</span>`)
+    + `<span class="ck"></span><button class="zoom" aria-label="Look closer">${ZOOM}</button><span class="tm">${time}</span>`
+    + `${uploaded.has(it.file) ? '<span class="done">On map</span>' : ''}</div>`;
+}
+
+function pkRender() {
+  const body = $('pk-body');
+  if (pk.obs) pk.obs.disconnect();
+  if (!pk.items.length) {
+    body.innerHTML = `<div class="pk-empty"><b>Choose a folder, or drag photos or a folder here</b>For example your pCloud camera uploads.
+      The photos show here large and by day, so you can tick the ones for the map. They stay on this computer until you add them.</div>`;
+    pkCount(); return;
+  }
+  const days = new Map();
+  pk.items.forEach((it, i) => { const k = localDay(it.t); if (!days.has(k)) days.set(k, []); days.get(k).push(i); });
+  body.innerHTML = [...days].map(([k, idx]) => `<section class="pk-day" data-day="${k}"><h3>${longDay(k)}<span class="tag" hidden></span>`
+    + `<span class="n">${idx.length}</span><button data-sel="${k}">Select all</button></h3>`
+    + `<div class="pk-grid">${idx.map((i) => pkTile(pk.items[i], i)).join('')}</div></section>`).join('');
+  // Previews are made only for photos on screen (reading one from pCloud fetches the whole photo).
+  pk.obs = new IntersectionObserver((entries) => entries.forEach((en) => {
+    const it = pk.items[en.target.dataset.i];
+    if (en.isIntersecting) pkWant(it);
+    else if (it.queued) { it.queued = false; pk.queue = pk.queue.filter((q) => q !== it); }
+  }), { root: body, rootMargin: '600px 0px' });
+  body.querySelectorAll('.pk-tile').forEach((el) => { pk.items[el.dataset.i].el = el; pk.obs.observe(el); });
+  pkDrove(); pkCount();
+}
+
+function pkWant(it) {
+  if (it.thumb || it.failed || it.queued || it.busy) return;
+  it.queued = true; pk.queue.push(it); pkPump();
+}
+function pkPump() {
+  while (pk.loading < 3 && pk.queue.length) {
+    const it = pk.queue.pop(); // the newest request is the one on screen now
+    it.queued = false; it.busy = true; pk.loading++;
+    shrink(it.file, 480, 0.8, true)
+      .then(({ blob }) => { it.thumb = URL.createObjectURL(blob); })
+      .catch(() => { it.failed = true; })
+      .finally(() => {
+        it.busy = false; pk.loading--;
+        const nm = it.el && it.el.isConnected && it.el.querySelector('.nm');
+        if (nm && it.thumb) nm.outerHTML = `<img src="${it.thumb}" alt="">`;
+        else if (nm) nm.textContent = `No preview · ${it.file.name}`;
+        pkPump();
+      });
+  }
+}
+
+function pkSet(i, on) {
+  const it = pk.items[i]; it.on = on;
+  if (it.el) { it.el.classList.toggle('on', on); it.el.setAttribute('aria-checked', on); }
+}
+const pkVisible = (i) => !(pk.items[i].el && pk.items[i].el.closest('.pk-day').hidden);
+function pkCount() {
+  const n = pk.items.filter((it) => it.on).length;
+  $('pk-count').textContent = pk.items.length ? `${n ? `${n} selected · ` : ''}${pk.items.length.toLocaleString()} photo${pk.items.length > 1 ? 's' : ''}` : '';
+  $('pk-clear').hidden = !n;
+  $('pk-add').disabled = !n;
+  $('pk-add').textContent = n ? `Add ${n} to map` : 'Add to map';
+  document.querySelectorAll('.pk-day').forEach((sec) => {
+    const tiles = [...sec.querySelectorAll('.pk-tile')];
+    sec.querySelector('[data-sel]').textContent = tiles.every((t) => pk.items[t.dataset.i].on) ? 'Clear' : 'Select all';
+  });
+}
+
+async function pkLoadDrove() {
+  if (!pk.items.length) return;
+  let lo = Infinity, hi = 0;
+  for (const it of pk.items) { lo = Math.min(lo, it.t); hi = Math.max(hi, it.t); }
+  try {
+    const d = await fetch(`/api/drove?from=${lo - 864e5}&to=${hi + 864e5}&tz=${-new Date().getTimezoneOffset()}`).then((r) => r.json());
+    pk.drove = new Map(d.days.map((x) => [x.day, x.km]));
+  } catch { return; }
+  pkDrove();
+}
+function pkDrove() {
+  const only = $('pk-drove').checked;
+  $('pk-drovelabel').hidden = !pk.drove.size;
+  document.querySelectorAll('.pk-day').forEach((sec) => {
+    const km = pk.drove.get(sec.dataset.day), tag = sec.querySelector('.tag');
+    tag.hidden = !km;
+    if (km) tag.textContent = `Trola drove ${km} km`;
+    sec.hidden = only && !km;
+  });
+}
+
+function pkOpen() {
+  $('picker').classList.add('open');
+  document.documentElement.style.overflow = 'hidden';
+  if (!pk.shown) { pk.shown = true; pkRender(); return; }
+  for (const it of pk.items) {
+    if (it.el && uploaded.has(it.file) && !it.el.querySelector('.done')) it.el.insertAdjacentHTML('beforeend', '<span class="done">On map</span>');
+  }
+}
+function pkClose() {
+  $('picker').classList.remove('open', 'drag');
+  document.documentElement.style.overflow = '';
+}
+
+$('pk-close').addEventListener('click', pkClose);
+$('pk-folder').addEventListener('click', () => $('pk-dirinput').click());
+$('pk-files').addEventListener('click', () => $('photofile').click());
+$('pk-dirinput').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) pkAdd(files, false, true); });
+$('pk-size').addEventListener('input', (e) => $('picker').style.setProperty('--pk', `${e.target.value}px`));
+$('pk-drove').addEventListener('change', pkDrove);
+$('pk-clear').addEventListener('click', () => { pk.items.forEach((it, i) => it.on && pkSet(i, false)); pkCount(); });
+$('pk-add').addEventListener('click', () => {
+  const chosen = pk.items.map((it, i) => [it, i]).filter(([it]) => it.on);
+  if (!chosen.length) return;
+  chosen.forEach(([, i]) => pkSet(i, false)); pkCount();
+  pkClose();
+  up.queue = chosen.map(([it]) => it).sort((a, b) => a.t - b.t).map((it) => it.file); // oldest first, like the trip went
+  up.i = 0; nextUpload();
+});
+
+// Click ticks a photo; shift-click ticks everything up to the last one clicked.
+$('pk-body').addEventListener('click', (e) => {
+  const sel = e.target.closest('[data-sel]');
+  if (sel) {
+    const idx = [...sel.closest('.pk-day').querySelectorAll('.pk-tile')].map((t) => +t.dataset.i);
+    const on = !idx.every((i) => pk.items[i].on);
+    idx.forEach((i) => pkSet(i, on)); pkCount(); return;
+  }
+  const tile = e.target.closest('.pk-tile'); if (!tile) return;
+  const i = +tile.dataset.i;
+  if (e.target.closest('.zoom')) { pkPreview(i); return; }
+  if (e.shiftKey && pk.last >= 0 && pk.last !== i) {
+    const on = pk.items[pk.last].on;
+    for (let j = Math.min(i, pk.last); j <= Math.max(i, pk.last); j++) if (pkVisible(j)) pkSet(j, on);
+  } else pkSet(i, !pk.items[i].on);
+  pk.last = i; pkCount();
+});
+$('pk-body').addEventListener('keydown', (e) => {
+  const tile = e.target.closest('.pk-tile');
+  if (!tile || (e.key !== ' ' && e.key !== 'Enter') || e.target.closest('.zoom')) return;
+  e.preventDefault(); pkSet(+tile.dataset.i, !pk.items[tile.dataset.i].on); pk.last = +tile.dataset.i; pkCount();
+});
+
+// Looking closer: the full photo, with arrows to step through and a button to tick it.
+function pkPreview(i) {
+  const it = pk.items[i]; pk.prev = i;
+  if (pk.prevUrl) URL.revokeObjectURL(pk.prevUrl);
+  pk.prevUrl = URL.createObjectURL(it.file);
+  const img = $('pk-previmg');
+  img.onerror = () => { if (it.thumb && img.src !== it.thumb) img.src = it.thumb; };
+  img.src = pk.prevUrl;
+  $('pk-prevmeta').textContent = `${it.file.name} · ${fmtDate(it.t)}`;
+  $('pk-prevpick').textContent = it.on ? 'Selected ✓' : 'Select';
+  $('pk-prev').classList.add('open');
+  $('pk-prev').focus(); // so Space ticks the photo, not whatever button had focus
+}
+function pkStep(d) {
+  for (let j = pk.prev + d; j >= 0 && j < pk.items.length; j += d) if (pkVisible(j)) { pkPreview(j); return; }
+}
+function pkPrevClose() {
+  $('pk-prev').classList.remove('open'); $('pk-previmg').src = '';
+  if (pk.prevUrl) { URL.revokeObjectURL(pk.prevUrl); pk.prevUrl = null; }
+  const it = pk.items[pk.prev]; if (it && it.el) it.el.focus();
+}
+$('pk-prevback').addEventListener('click', () => pkStep(-1));
+$('pk-prevnext').addEventListener('click', () => pkStep(1));
+$('pk-prevclose').addEventListener('click', pkPrevClose);
+$('pk-prevpick').addEventListener('click', () => { pkSet(pk.prev, !pk.items[pk.prev].on); pkCount(); pkPreview(pk.prev); });
+$('pk-prev').addEventListener('click', (e) => { if (e.target.id === 'pk-prev') pkPrevClose(); });
+addEventListener('keydown', (e) => {
+  if ($('pk-prev').classList.contains('open')) {
+    if (e.key === 'Escape') pkPrevClose();
+    else if (e.key === 'ArrowLeft') pkStep(-1);
+    else if (e.key === 'ArrowRight') pkStep(1);
+    else if (e.key === ' ') { e.preventDefault(); $('pk-prevpick').click(); }
+  } else if (e.key === 'Escape' && $('picker').classList.contains('open')) pkClose();
+});
+
+// Drag photos or folders from Finder onto the page. Photos dragged one by one come ticked,
+// a folder's photos don't.
+const dragsFiles = (e) => !$('addphoto').hidden && e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+addEventListener('dragenter', (e) => { if (!dragsFiles(e)) return; e.preventDefault(); pkOpen(); $('picker').classList.add('drag'); });
+addEventListener('dragover', (e) => { if (dragsFiles(e)) e.preventDefault(); });
+addEventListener('dragleave', (e) => { if (!e.relatedTarget) $('picker').classList.remove('drag'); });
+async function walk(entry, out) {
+  if (entry.isFile) { try { out.push(await new Promise((res, rej) => entry.file(res, rej))); } catch { /* unreadable */ } return; }
+  const reader = entry.createReader();
+  for (;;) {
+    const batch = await new Promise((res) => reader.readEntries(res, () => res([])));
+    if (!batch.length) return;
+    for (const en of batch) await walk(en, out);
+  }
+}
+addEventListener('drop', async (e) => {
+  if (!dragsFiles(e)) return;
+  e.preventDefault(); $('picker').classList.remove('drag');
+  const entries = [...e.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) { pkAdd([...e.dataTransfer.files], true); return; }
+  const loose = [], inFolders = [];
+  for (const en of entries) await walk(en, en.isFile ? loose : inFolders);
+  if (inFolders.length) pkAdd(inFolders, false);
+  if (loose.length) pkAdd(loose, true);
 });
 
 // ---------- Charging sessions ----------

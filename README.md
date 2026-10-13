@@ -43,6 +43,9 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
 - **Photo pins** – the admin uploads photos from the map page; the browser reads EXIF GPS
   (or matches the photo time to Trola's track, or lets you tap the map), shrinks the photo
   to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).
+  On a computer, Add photo opens TrolaSpy's own picker: choose a folder (or drop photos or
+  folders on the page) and its photos show large, by day, with checkmarks; days Trola drove
+  are marked (`/api/drove`). Phones use their own photo picker.
 
 Free-tier fit: one upload every 10 s is about 8,600 Worker requests and D1 row
 writes a day (limits: 100,000 each).

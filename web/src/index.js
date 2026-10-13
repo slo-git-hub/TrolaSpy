@@ -63,7 +63,7 @@ async function track(env, hours) {
             CASE WHEN chrg_mode > 0 AND COALESCE(bat_volts * bat_amps, 0) = 0 THEN NULL
                  ELSE ROUND(bat_volts * bat_amps / 1000.0, 2) END AS kw
        FROM readings WHERE ts >= ?
-      GROUP BY ts / ?
+      GROUP BY ts / CAST(? AS INTEGER)
       ORDER BY ts`
   ).bind(since, bucketMs).all();
   return { since, bucketMs, points: results };
@@ -82,11 +82,11 @@ async function solar(env, hours) {
   const [sol, dcdc, pts, days, dpts, runs, rest] = await Promise.all([
     one('solar'), one('dcdc'),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(pv_w)) AS pv_w, ROUND(AVG(batt_v), 2) AS batt_v
-                      FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / ? ORDER BY ts`).bind(since, bucketMs).all(),
+                      FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
     env.DB.prepare(`SELECT ts / 86400000 AS d, MAX(yield_wh) AS wh FROM victron
                      WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? GROUP BY d ORDER BY d`).bind(month).all(),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(in_v), 2) AS in_v FROM victron
-                     WHERE kind = 'dcdc' AND ts >= ? GROUP BY ts / ? ORDER BY ts`).bind(since, bucketMs).all(),
+                     WHERE kind = 'dcdc' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
     env.DB.prepare(`WITH r AS (SELECT ts, state, LEAD(ts) OVER (ORDER BY ts) AS nx FROM victron WHERE kind = 'dcdc' AND ts >= ?1)
                     SELECT ts / 86400000 AS d, SUM(MIN(COALESCE(nx, ?2), ts + ?3) - ts) AS on_ms FROM r
                      WHERE state > 0 GROUP BY d ORDER BY d`).bind(month, now, RUN_GAP_MS).all(),
@@ -107,6 +107,18 @@ async function solar(env, hours) {
 async function stats(env, hours) {
   const since = Date.now() - hours * 3600 * 1000;
   return { since, ...(await rangeStats(env.DB, since)) };
+}
+
+// Days Trola was driven between two times (ms), for marking them in the photo picker. Days are
+// in the viewer's time zone: tz = minutes east of UTC.
+const MAX_DROVE_MS = 4 * 366 * 864e5;
+async function droveDays(env, from, to, tz) {
+  from = Math.max(from, to - MAX_DROVE_MS);
+  const { results } = await env.DB.prepare(
+    `SELECT (ts + CAST(?3 AS INTEGER)) / 86400000 AS d, ROUND(MAX(odo) - MIN(odo)) AS km FROM readings
+      WHERE ts >= ?1 AND ts < ?2 AND odo > 0 GROUP BY d HAVING km > 0 ORDER BY d`
+  ).bind(from, to, tz * 60000).all();
+  return { days: results.map((r) => ({ day: dayKey(r.d * 864e5), km: r.km })) };
 }
 
 // One month of day summaries (finished days are stored, today is live). month = YYYY-MM.
@@ -146,6 +158,10 @@ export default {
       const origin = request.headers.get('Origin');
       if (method !== 'GET' && origin && origin !== url.origin) return json({ error: 'Bad origin.' }, 403);
       return handleAdmin(request, env, url);
+    }
+    if (url.pathname === '/api/drove') {
+      const q = (k) => Number(url.searchParams.get(k)) || 0;
+      return json(await droveDays(env, q('from'), q('to') || Date.now(), Math.max(-900, Math.min(900, q('tz')))));
     }
     if (url.pathname === '/api/monthly') return json(await monthly(env, url.searchParams.get('month') || ''));
     if (url.pathname.startsWith('/api/photos') || url.pathname === '/api/position') {
