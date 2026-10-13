@@ -16,10 +16,10 @@ export default {
     const url = new URL(request.url);
     if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
     if (url.pathname === '/api/where') return json(await publicWhere(env.DB));
-    const m = url.pathname.match(/^\/photos\/([0-9a-f-]{36})(_t)?\.jpg$/);
+    const m = url.pathname.match(/^\/photos\/([0-9a-f-]{36})((?:_t)?\.jpg|\.mp4)$/);
     if (m) {
       if (!(await publicPhotoAllowed(env.DB, m[1]))) return new Response('Not found', { status: 404 });
-      return servePhoto(env, `${m[1]}${m[2] || ''}.jpg`, 'public, max-age=86400');
+      return servePhoto(env, `${m[1]}${m[2]}`, 'public, max-age=86400', request);
     }
     if (url.pathname === '/logo') return new Response(logo, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
     if (url.pathname === '/banner.jpg') return new Response(banner, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' } });

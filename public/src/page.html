@@ -98,6 +98,12 @@
     box-shadow: 0 4px 12px rgba(0,0,0,.35); cursor: pointer; transition: transform .15s; }
   .pin:hover { transform: scale(1.12); }
   .pin img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Video pins and tiles: a play mark over the frame. */
+  .vid { position: relative; }
+  .vid::after { content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-35%, -50%); border-style: solid;
+    border-width: 7px 0 7px 12px; border-color: transparent transparent transparent #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+  .lightbox video { max-width: 100%; max-height: 78dvh; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5); background: #000; }
+  .lightbox [hidden] { display: none; }
   .map-tiles { filter: saturate(.7) brightness(1.03); }
   [data-theme="dark"] .map-tiles { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.45); }
   .leaflet-control-attribution { font-size: 10px; background: var(--card) !important; color: var(--muted); }
@@ -132,6 +138,7 @@
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
   <button class="btn close" id="lbclose" aria-label="Close">✕</button>
   <img id="lbimg" alt="">
+  <video id="lbvid" controls playsinline preload="metadata" hidden></video>
   <div class="meta"><div id="lbcaption"></div><small id="lbdate"></small></div>
   <button class="btn" id="lbgo">Show on map</button>
 </div>
@@ -247,12 +254,13 @@ function showPhotos(list) {
   $('grid').innerHTML = '';
   for (const ph of list) {
     L.marker([ph.lat, ph.lon], { zIndexOffset: -100, icon: L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
-      html: `<div class="pin"><img src="/photos/${ph.id}_t.jpg" alt=""></div>` }) })
+      html: `<div class="pin${ph.duration ? ' vid' : ''}"><img src="/photos/${ph.id}_t.jpg" alt=""></div>` }) })
       .on('click', () => openLightbox(ph)).addTo(photoLayer);
   }
   for (const ph of list.slice(0, 9)) {
     const b = document.createElement('button');
-    b.setAttribute('aria-label', ph.caption || 'Photo');
+    b.setAttribute('aria-label', ph.caption || (ph.duration ? 'Video' : 'Photo'));
+    if (ph.duration) b.className = 'vid';
     b.innerHTML = `<img src="/photos/${ph.id}_t.jpg" alt="" loading="lazy">`;
     b.addEventListener('click', () => openLightbox(ph));
     $('grid').append(b);
@@ -262,12 +270,18 @@ function showPhotos(list) {
 }
 function openLightbox(ph) {
   lbPhoto = ph;
-  $('lbimg').src = `/photos/${ph.id}.jpg`;
+  const v = $('lbvid');
+  $('lbimg').hidden = !!ph.duration; v.hidden = !ph.duration;
+  if (ph.duration) { v.poster = `/photos/${ph.id}.jpg`; v.src = `/photos/${ph.id}.mp4`; $('lbimg').removeAttribute('src'); }
+  else $('lbimg').src = `/photos/${ph.id}.jpg`;
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = fmtDate(ph.taken_ts || ph.created_ts);
   $('lightbox').classList.add('open');
 }
-const closeLightbox = () => { $('lightbox').classList.remove('open'); $('lbimg').src = ''; };
+const closeLightbox = () => {
+  $('lightbox').classList.remove('open'); $('lbimg').removeAttribute('src');
+  const v = $('lbvid'); v.pause(); v.removeAttribute('src'); v.load();
+};
 $('lbclose').addEventListener('click', closeLightbox);
 $('lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
 addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });

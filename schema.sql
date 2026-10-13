@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS readings (
   rpm        INTEGER
 );
 
--- Photos pinned on the map. Images live in R2 under photos/<id>.jpg and photos/<id>_t.jpg.
+-- Photos and videos pinned on the map. Images live in R2 under photos/<id>.jpg and photos/<id>_t.jpg;
+-- a video adds photos/<id>.mp4 (the .jpg is then a frame from it).
 CREATE TABLE IF NOT EXISTS photos (
   id         TEXT PRIMARY KEY,
   taken_ts   INTEGER,  -- ms since epoch, from EXIF when available
@@ -36,7 +37,8 @@ CREATE TABLE IF NOT EXISTS photos (
   width      INTEGER,
   height     INTEGER,
   created_ts INTEGER NOT NULL,
-  created_by TEXT
+  created_by TEXT,
+  duration   REAL      -- seconds, for a video; NULL for a photo
 );
 
 -- Finished charging sessions, copied from readings daily so they are kept after 30 days.

@@ -46,6 +46,11 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   On a computer, Add photo opens TrolaSpy's own picker: choose a folder (or drop photos or
   folders on the page) and its photos show large, by day, with checkmarks; days Trola drove
   are marked (`/api/drove`). Phones use their own photo picker.
+- **Video pins** – videos go through the same flow. The browser shrinks them first with
+  [Mediabunny](https://mediabunny.dev) (served by the web Worker from `node_modules`, loaded only
+  when a video is added): 720p at about 1.6 Mbit/s, sound kept, at most 3 minutes, metadata
+  dropped. R2 holds `photos/<id>.mp4` plus a frame as `<id>.jpg`; videos are served with HTTP
+  Range so they can be skipped through. `photos.duration` marks a video.
 
 Free-tier fit: one upload every 10 s is about 8,600 Worker requests and D1 row
 writes a day (limits: 100,000 each).

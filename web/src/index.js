@@ -5,6 +5,9 @@ import icon192 from './icon-192.png';
 import icon512 from './icon-512.png';
 import iconMaskable from './icon-maskable-512.png';
 import { manifest, serviceWorker } from './pwa.js';
+// Video shrinking in the browser (WebCodecs), served from here and loaded only when a video is added.
+import mediabunny from '../../node_modules/mediabunny/dist/bundles/mediabunny.min.mjs';
+const MEDIABUNNY_PATH = '/vendor/mediabunny-1.59.1.mjs';
 import { listSessions } from '../../shared/charges.js';
 import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js';
 import { getSettings } from '../../shared/alerts.js';
@@ -150,8 +153,11 @@ export default {
     if (url.pathname === '/api/photos' && method === 'GET') return listPhotos(env);
     if (url.pathname.startsWith('/photos/') && method === 'GET') {
       const key = url.pathname.slice('/photos/'.length);
-      if (!/^[0-9a-f-]{36}(_t)?\.jpg$/.test(key)) return new Response('Not found', { status: 404 });
-      return servePhoto(env, key);
+      if (!/^[0-9a-f-]{36}((_t)?\.jpg|\.mp4)$/.test(key)) return new Response('Not found', { status: 404 });
+      return servePhoto(env, key, undefined, request);
+    }
+    if (url.pathname === MEDIABUNNY_PATH) {
+      return new Response(mediabunny, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'private, max-age=31536000, immutable' } });
     }
     if (url.pathname.startsWith('/api/admin/')) {
       if (!admin) return json({ error: 'Only the admin can do that.' }, 403);

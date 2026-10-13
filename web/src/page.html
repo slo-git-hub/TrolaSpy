@@ -205,6 +205,12 @@
     box-shadow: 0 4px 12px rgba(0,0,0,.35); cursor: pointer; transition: transform .15s; }
   .pin:hover { transform: scale(1.12); }
   .pin img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Video pins and tiles: a play mark over the frame. */
+  .vid { position: relative; }
+  .vid::after { content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-35%, -50%); border-style: solid;
+    border-width: 7px 0 7px 12px; border-color: transparent transparent transparent #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+  .lightbox video, .pk-prev video { max-width: 100%; max-height: 78dvh; border-radius: 12px; background: #000; }
+  .lightbox video[hidden], .lightbox img[hidden], .pk-prev video[hidden], .pk-prev img[hidden] { display: none; }
   .pin.staging { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent), 0 6px 16px rgba(0,0,0,.35); }
 
   .lightbox { position: fixed; inset: 0; z-index: 2000; background: rgba(5,15,20,.88); display: none;
@@ -270,7 +276,10 @@
   .pk-tile:focus-visible { box-shadow: 0 0 0 3px var(--accent); }
   .pk-tile .tm, .pk-tile .done { position: absolute; bottom: 7px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
   .pk-tile .tm { left: 9px; }
+  .pk-tile .dur { position: absolute; bottom: 6px; right: 8px; font-size: 11px; font-weight: 700; color: #fff;
+    background: rgba(0,0,0,.55); padding: 1px 7px; border-radius: 7px; }
   .pk-tile .done { right: 8px; background: var(--batt); padding: 1px 7px; border-radius: 7px; text-shadow: none; }
+  .pk-tile .dur ~ .done { bottom: 28px; }
   .pk-tile .zoom { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 8px; border: 0; padding: 0;
     background: rgba(0,0,0,.45); color: #fff; display: grid; place-items: center; cursor: zoom-in; opacity: 0; transition: opacity .12s; }
   .pk-tile .zoom svg { width: 16px; height: 16px; }
@@ -320,11 +329,11 @@
 <button class="fab" id="addphoto" aria-label="Add photo" hidden>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
 </button>
-<input type="file" id="photofile" accept="image/*" multiple hidden>
+<input type="file" id="photofile" accept="image/*,video/*" multiple hidden>
 <input type="file" id="pk-dirinput" webkitdirectory multiple hidden>
 <div class="picker" id="picker" role="dialog" aria-modal="true" aria-label="Choose photos">
   <div class="pk-head">
-    <h2>Add photos</h2>
+    <h2>Add photos and videos</h2>
     <button class="btn" id="pk-folder">Choose a folder</button>
     <button class="btn" id="pk-files">Choose photos</button>
     <label id="pk-drovelabel" hidden><input type="checkbox" id="pk-drove"> Only days Trola drove</label>
@@ -340,6 +349,7 @@
 </div>
 <div class="pk-prev" id="pk-prev" tabindex="-1">
   <img id="pk-previmg" alt="">
+  <video id="pk-prevvid" controls playsinline hidden></video>
   <div class="meta" id="pk-prevmeta"></div>
   <div class="row"><button class="btn" id="pk-prevback">‹</button><button class="btn primary" id="pk-prevpick">Select</button>
     <button class="btn" id="pk-prevnext">›</button><button class="btn" id="pk-prevclose">Close</button></div>
@@ -347,6 +357,7 @@
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
   <button class="btn close" id="lbclose" aria-label="Close">✕</button>
   <img id="lbimg" alt="">
+  <video id="lbvid" controls playsinline preload="metadata" hidden></video>
   <div class="meta"><div id="lbcaption"></div>
     <form class="capedit" id="lbcapform" hidden><input type="text" id="lbcapinput" placeholder="Caption" maxlength="500">
       <button class="btn primary">Save</button><button class="btn" type="button" id="lbcapcancel">Cancel</button></form>
@@ -825,14 +836,17 @@ async function loadPhotos() {
   } catch { return; }
   photoLayer.clearLayers();
   for (const ph of photos) {
-    L.marker([ph.lat, ph.lon], { icon: pinIcon(`/photos/${ph.id}_t.jpg`), zIndexOffset: -100 })
+    L.marker([ph.lat, ph.lon], { icon: pinIcon(`/photos/${ph.id}_t.jpg`, ph.duration ? 'vid' : ''), zIndexOffset: -100 })
       .on('click', () => openLightbox(ph)).addTo(photoLayer);
   }
 }
 
 function openLightbox(ph) {
   lbPhoto = ph;
-  $('lbimg').src = `/photos/${ph.id}.jpg`;
+  const v = $('lbvid');
+  $('lbimg').hidden = !!ph.duration; v.hidden = !ph.duration;
+  if (ph.duration) { v.poster = `/photos/${ph.id}.jpg`; v.src = `/photos/${ph.id}.mp4`; $('lbimg').removeAttribute('src'); }
+  else $('lbimg').src = `/photos/${ph.id}.jpg`;
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = ph.taken_ts ? fmtDate(ph.taken_ts) : `Added ${fmtDate(ph.created_ts)}`;
   $('lbdelete').hidden = !me.admin;
@@ -841,7 +855,10 @@ function openLightbox(ph) {
   editCaption(false);
   $('lightbox').classList.add('open');
 }
-const closeLightbox = () => { $('lightbox').classList.remove('open'); $('lbimg').src = ''; lbPhoto = null; };
+const closeLightbox = () => {
+  $('lightbox').classList.remove('open'); $('lbimg').removeAttribute('src'); lbPhoto = null;
+  const v = $('lbvid'); if (v.getAttribute('src')) { v.pause(); v.removeAttribute('src'); v.load(); }
+};
 function editCaption(on) {
   $('lbcapform').hidden = !on;
   $('lbcaption').hidden = on;
@@ -879,7 +896,7 @@ $('lbgo').addEventListener('click', () => {
   map.flyTo([ph.lat, ph.lon], 16);
 });
 $('lbdelete').addEventListener('click', async () => {
-  if (!lbPhoto || !confirm('Delete this photo from the map?')) return;
+  if (!lbPhoto || !confirm(`Delete this ${lbPhoto.duration ? 'video' : 'photo'} from the map?`)) return;
   const r = await fetch(`/api/photos/${lbPhoto.id}`, { method: 'DELETE' });
   if (!r.ok) { alert('Could not delete the photo.'); return; }
   closeLightbox();
@@ -898,13 +915,17 @@ async function decode(file) {
 }
 async function shrink(file, max, quality, cover = false) {
   const bmp = await decode(file);
-  const w = bmp.naturalWidth || bmp.width, h = bmp.naturalHeight || bmp.height;
+  try { return await toJpeg(bmp, max, quality, cover); } finally { bmp.close && bmp.close(); }
+}
+// Any image, canvas or video frame → JPEG, the long side (or with cover, the short side) at most max.
+async function toJpeg(src, max, quality, cover = false) {
+  const w = src.naturalWidth || src.videoWidth || src.width, h = src.naturalHeight || src.videoHeight || src.height;
   const k = Math.min(1, max / (cover ? Math.min(w, h) : Math.max(w, h)));
   const c = document.createElement('canvas');
   c.width = Math.round(w * k); c.height = Math.round(h * k);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  bmp.close && bmp.close();
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
   const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', quality));
+  if (!blob) throw new Error('Could not make a JPEG.');
   return { blob, width: c.width, height: c.height };
 }
 
@@ -950,24 +971,46 @@ function setStaging(lat, lon) {
   $('upsave').disabled = false;
 }
 
+// Queue line: "2 of 5", and how far shrinking the current video has got.
+function upProgress() {
+  const c = up.cur, parts = [];
+  if (up.queue.length > 1) parts.push(`${up.i + 1} of ${up.queue.length}`);
+  if (c && c.video && c.progress < 1) parts.push(`shrinking video ${Math.round(c.progress * 100)}%`);
+  $('upcount').textContent = parts.join(' · ');
+  if (c && c.video && up.busy && c.progress < 1) $('upsave').textContent = `Shrinking… ${Math.round(c.progress * 100)}%`;
+}
+
 async function nextUpload() {
   if (up.marker) { up.marker.remove(); up.marker = null; }
   if (up.cur && up.cur.thumbUrl) URL.revokeObjectURL(up.cur.thumbUrl);
+  if (up.cur && up.cur.conv) up.cur.conv.cancel().catch(() => {});
   if (up.i >= up.queue.length) { $('uploader').classList.remove('open'); up.cur = null; loadPhotos(); return; }
   const file = up.queue[up.i];
   $('uploader').classList.add('open');
-  $('upcount').textContent = up.queue.length > 1 ? `${up.i + 1} of ${up.queue.length}` : '';
-  $('upwhere').className = 'where'; $('upwhere').textContent = 'Reading photo…';
+  const video = isVideo(file);
+  up.cur = null; upProgress();
+  $('upwhere').className = 'where'; $('upwhere').textContent = video ? 'Reading video…' : 'Reading photo…';
   $('upcaption').value = ''; $('upsave').disabled = true; $('upthumb').src = '';
   try {
-    const [loc, big, small] = await Promise.all([locate(file), shrink(file, 2000, 0.82), shrink(file, 400, 0.75)]);
-    up.cur = { ...loc, big, small, thumbUrl: URL.createObjectURL(small.blob) };
+    if (video) {
+      const v = await readVideo(file);
+      const loc = await locateVideo(v, file);
+      if (v.duration > VIDEO_MAX_S + 1) loc.note += ` · only the first ${VIDEO_MAX_S / 60} minutes are kept`;
+      const cur = { ...loc, big: v.poster, small: v.thumb, thumbUrl: URL.createObjectURL(v.thumb.blob), video: true, progress: 0 };
+      cur.shrunk = shrinkVideo(file, (p) => { cur.progress = p; if (up.cur === cur) upProgress(); }, (c) => { cur.conv = c; });
+      cur.shrunk.catch(() => {}); // reported when it is added
+      up.cur = cur;
+    } else {
+      const [loc, big, small] = await Promise.all([locate(file), shrink(file, 2000, 0.82), shrink(file, 400, 0.75)]);
+      up.cur = { ...loc, big, small, thumbUrl: URL.createObjectURL(small.blob) };
+    }
   } catch (e) {
     $('upwhere').className = 'where need';
-    $('upwhere').textContent = 'This photo format can’t be read here. Try a JPEG.';
+    $('upwhere').textContent = video ? 'This video can’t be read here. Chrome reads the most kinds.' : 'This photo format can’t be read here. Try a JPEG.';
     up.cur = null;
     return;
   }
+  upProgress();
   $('upthumb').src = up.cur.thumbUrl;
   $('upwhere').textContent = up.cur.note;
   $('upwhere').classList.toggle('need', up.cur.lat === null);
@@ -1001,13 +1044,20 @@ $('upsave').addEventListener('click', async () => {
   if (!c || c.lat === null || up.busy) return;
   up.busy = true; $('upsave').disabled = true; $('upsave').textContent = 'Uploading…';
   const fd = new FormData();
-  fd.append('image', new File([c.big.blob], 'photo.jpg', { type: 'image/jpeg' }));
-  fd.append('thumb', new File([c.small.blob], 'thumb.jpg', { type: 'image/jpeg' }));
-  fd.append('lat', c.lat); fd.append('lon', c.lon); fd.append('source', c.source);
-  if (c.taken) fd.append('taken_ts', c.taken);
-  fd.append('width', c.big.width); fd.append('height', c.big.height);
-  fd.append('caption', $('upcaption').value.trim());
   try {
+    if (c.video) {
+      upProgress();
+      const out = await c.shrunk; // waits for shrinking to finish
+      $('upsave').textContent = 'Uploading…'; upProgress();
+      fd.append('video', new File([out.blob], 'video.mp4', { type: 'video/mp4' }));
+      fd.append('duration', out.duration);
+    }
+    fd.append('image', new File([c.big.blob], 'photo.jpg', { type: 'image/jpeg' }));
+    fd.append('thumb', new File([c.small.blob], 'thumb.jpg', { type: 'image/jpeg' }));
+    fd.append('lat', c.lat); fd.append('lon', c.lon); fd.append('source', c.source);
+    if (c.taken) fd.append('taken_ts', c.taken);
+    fd.append('width', c.big.width); fd.append('height', c.big.height);
+    fd.append('caption', $('upcaption').value.trim());
     const r = await fetch('/api/photos', { method: 'POST', body: fd });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
     uploaded.add(up.queue[up.i]);
@@ -1022,13 +1072,114 @@ $('upsave').addEventListener('click', async () => {
   }
 });
 
+// ---------- Videos ----------
+// Shrunk in the browser before upload (Mediabunny, with the browser's own video encoder): 720p,
+// about 1.6 Mbit/s, sound kept, at most VIDEO_MAX_S long, and without the original's metadata.
+// The pin and the viewer get a frame from the video.
+const VIDEO_RE = /\.(mp4|mov|m4v|webm|3gp|mkv)$/i;
+const isVideo = (f) => f.type.startsWith('video/') || VIDEO_RE.test(f.name);
+const VIDEO_MAX_S = 180, VIDEO_LONG = 1280, VIDEO_BPS = 1_600_000, AUDIO_BPS = 96_000;
+let mbLoad = null;
+const mediabunny = () => (mbLoad ||= import('/vendor/mediabunny-1.59.1.mjs'));
+const fmtDur = (sec) => { const t = Math.round(sec); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+
+// Where it was filmed, if the video says: phones write ISO 6709 text like "+46.0569+014.5058/"
+// (iPhone: com.apple.quicktime.location.ISO6709, Android: the ©xyz atom).
+function videoPlace(tags) {
+  for (const [k, v] of Object.entries((tags && tags.raw) || {})) {
+    if (!/xyz|location/i.test(k)) continue;
+    const t = typeof v === 'string' ? v : v instanceof Uint8Array ? String.fromCharCode(...v) : '';
+    const m = t.match(/([+-]\d{1,2}(?:\.\d+)?)([+-]\d{1,3}(?:\.\d+)?)/);
+    if (m && (+m[1] || +m[2]) && Math.abs(m[1]) <= 90 && Math.abs(m[2]) <= 180) return { lat: +m[1], lon: +m[2] };
+  }
+  return null;
+}
+
+// Length, place and time (when the video says), and a frame for the pin and the viewer.
+async function readVideo(file) {
+  const mb = await mediabunny();
+  const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
+  try {
+    const track = await input.getPrimaryVideoTrack();
+    if (!track) throw new Error('No video in this file.');
+    const [duration, tags, start] = await Promise.all([input.computeDuration(), input.getMetadataTags().catch(() => ({})), track.getFirstTimestamp()]);
+    const k = Math.min(1, VIDEO_LONG / Math.max(track.displayWidth, track.displayHeight));
+    const sink = new mb.CanvasSink(track, { width: Math.round(track.displayWidth * k), height: Math.round(track.displayHeight * k), fit: 'contain' });
+    const frame = await sink.getCanvas(start + Math.min(1, duration / 3));
+    if (!frame) throw new Error('No frame.');
+    const [poster, thumb] = [await toJpeg(frame.canvas, VIDEO_LONG, 0.82), await toJpeg(frame.canvas, 400, 0.75)];
+    const date = tags.date instanceof Date && !isNaN(tags.date) ? tags.date.getTime() : null;
+    return { duration, place: videoPlace(tags), taken: date, poster, thumb };
+  } finally { input.dispose(); }
+}
+
+// The shrunk MP4. onConv gets the running conversion, so it can be cancelled.
+async function shrinkVideo(file, onProgress, onConv) {
+  const mb = await mediabunny();
+  const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
+  const track = await input.getPrimaryVideoTrack();
+  const k = Math.min(1, VIDEO_LONG / Math.max(track.displayWidth, track.displayHeight));
+  const even = (v) => Math.max(2, Math.round((v * k) / 2) * 2);
+  const width = even(track.displayWidth), height = even(track.displayHeight);
+  // Smaller videos need fewer bits. (A bare number would mean a 0-1 quality level, not a bitrate.)
+  const quality = new mb.Quality({ bitrate: Math.round(VIDEO_BPS * Math.max(0.3, Math.min(1, (width * height) / (1280 * 720)))) });
+  const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9', 'av1'], { width, height, quality });
+  if (!codec) throw new Error('This browser can’t make videos. Try Chrome.');
+  const audio = await mb.getFirstEncodableAudioCodec(['aac', 'opus']);
+  const stats = await track.computePacketStats(60).catch(() => null);
+  const end = Math.min(await input.computeDuration(), VIDEO_MAX_S);
+  const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
+  const conv = await mb.Conversion.init({
+    input, output, tracks: 'primary', trim: { end }, showWarnings: false,
+    tags: {}, // drop the original's metadata (it can hold the exact place)
+    video: { width, height, fit: 'contain', codec, quality, ...(stats && stats.averagePacketRate > 32 ? { frameRate: 30 } : {}) },
+    audio: audio ? { codec: audio, quality: new mb.Quality({ bitrate: AUDIO_BPS }) } : { discard: true },
+  });
+  if (!conv.isValid) throw new Error('This video can’t be read here.');
+  conv.onProgress = onProgress;
+  onConv(conv);
+  try {
+    await conv.execute();
+  } finally { input.dispose(); }
+  return { blob: new Blob([output.target.buffer], { type: 'video/mp4' }), width, height, duration: end };
+}
+
+async function locateVideo(v, file) {
+  const taken = v.taken || fileTime(file);
+  if (v.place) return { ...v.place, source: 'exif', taken, note: 'Location from the video' };
+  try {
+    const p = await fetch(`/api/position?ts=${taken}`).then((r) => r.json());
+    if (p.found) return { lat: p.lat, lon: p.lon, source: 'track', taken, note: `No location in video · placed where Trola was at ${fmtDate(taken)}` };
+  } catch { /* fall through */ }
+  return { lat: null, lon: null, source: 'manual', taken, note: 'No location in video · tap the map where it was filmed' };
+}
+
+// A frame for the picker, through the browser's own player (quick, no shrinking library).
+function videoThumb(file, max = 480) {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement('video'), url = URL.createObjectURL(file);
+    let done = false;
+    const end = (err, val) => {
+      if (done) return; done = true; clearTimeout(timer);
+      v.removeAttribute('src'); v.load(); URL.revokeObjectURL(url);
+      if (err) reject(err); else resolve(val);
+    };
+    const timer = setTimeout(() => end(new Error('Took too long.')), 20000);
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 0) / 3); };
+    v.onseeked = () => toJpeg(v, max, 0.8, true).then((j) => end(null, { ...j, duration: v.duration }), end);
+    v.onerror = () => end(new Error('Can’t play this video here.'));
+    v.src = url;
+  });
+}
+
 // ---------- Photo picker (on a computer) ----------
 // A folder's photos (say, pCloud's camera uploads) shown large, newest day first, with checkmarks.
 // A web page only sees files handed to it: a chosen folder, chosen photos, or ones dropped on it.
 // Nothing leaves the computer until a photo is added to the map.
 const pk = { items: [], last: -1, drove: new Map(), queue: [], loading: 0, obs: null, prev: -1, prevUrl: null };
 const uploaded = new WeakSet(); // files added to the map this visit
-const IMAGE_RE = /\.(jpe?g|png|webp|gif|heic|heif|avif)$/i;
+const IMAGE_RE = /\.(jpe?g|png|webp|gif|heic|heif|avif)$/i; // videos: isVideo()
 const ZOOM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
 const pad2 = (v) => String(v).padStart(2, '0');
 const localDay = (t) => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
@@ -1050,7 +1201,7 @@ function pkAdd(files, checked, replace = false) {
   const key = (f) => `${f.name}|${f.size}|${f.lastModified}`;
   const seen = new Set(pk.items.map((it) => key(it.file)));
   for (const f of files) {
-    if (f.name.startsWith('.') || !(f.type.startsWith('image/') || IMAGE_RE.test(f.name)) || seen.has(key(f))) continue;
+    if (f.name.startsWith('.') || !(f.type.startsWith('image/') || IMAGE_RE.test(f.name) || isVideo(f)) || seen.has(key(f))) continue;
     seen.add(key(f));
     pk.items.push({ file: f, t: fileTime(f), on: !!checked, thumb: null });
   }
@@ -1065,6 +1216,7 @@ function pkTile(it, i) {
   return `<div class="pk-tile${it.on ? ' on' : ''}" data-i="${i}" role="checkbox" aria-checked="${it.on}" tabindex="0" title="${esc(it.file.name)}">`
     + (it.thumb ? `<img src="${it.thumb}" alt="">` : `<span class="nm">${it.failed ? 'No preview · ' : ''}${esc(it.file.name)}</span>`)
     + `<span class="ck"></span><button class="zoom" aria-label="Look closer">${ZOOM}</button><span class="tm">${time}</span>`
+    + (isVideo(it.file) ? `<span class="dur">▶${it.dur ? ` ${fmtDur(it.dur)}` : ''}</span>` : '')
     + `${uploaded.has(it.file) ? '<span class="done">On map</span>' : ''}</div>`;
 }
 
@@ -1072,8 +1224,8 @@ function pkRender() {
   const body = $('pk-body');
   if (pk.obs) pk.obs.disconnect();
   if (!pk.items.length) {
-    body.innerHTML = `<div class="pk-empty"><b>Choose a folder, or drag photos or a folder here</b>For example your pCloud camera uploads.
-      The photos show here large and by day, so you can tick the ones for the map. They stay on this computer until you add them.</div>`;
+    body.innerHTML = `<div class="pk-empty"><b>Choose a folder, or drag photos, videos or a folder here</b>For example your pCloud camera uploads.
+      They show here large and by day, so you can tick the ones for the map. They stay on this computer until you add them.</div>`;
     pkCount(); return;
   }
   const days = new Map();
@@ -1099,14 +1251,16 @@ function pkPump() {
   while (pk.loading < 3 && pk.queue.length) {
     const it = pk.queue.pop(); // the newest request is the one on screen now
     it.queued = false; it.busy = true; pk.loading++;
-    shrink(it.file, 480, 0.8, true)
-      .then(({ blob }) => { it.thumb = URL.createObjectURL(blob); })
+    (isVideo(it.file) ? videoThumb(it.file) : shrink(it.file, 480, 0.8, true))
+      .then(({ blob, duration }) => { it.thumb = URL.createObjectURL(blob); it.dur = duration; })
       .catch(() => { it.failed = true; })
       .finally(() => {
         it.busy = false; pk.loading--;
         const nm = it.el && it.el.isConnected && it.el.querySelector('.nm');
         if (nm && it.thumb) nm.outerHTML = `<img src="${it.thumb}" alt="">`;
         else if (nm) nm.textContent = `No preview · ${it.file.name}`;
+        const dur = it.dur && it.el && it.el.querySelector('.dur');
+        if (dur) dur.textContent = `▶ ${fmtDur(it.dur)}`;
         pkPump();
       });
   }
@@ -1207,9 +1361,14 @@ function pkPreview(i) {
   const it = pk.items[i]; pk.prev = i;
   if (pk.prevUrl) URL.revokeObjectURL(pk.prevUrl);
   pk.prevUrl = URL.createObjectURL(it.file);
-  const img = $('pk-previmg');
-  img.onerror = () => { if (it.thumb && img.src !== it.thumb) img.src = it.thumb; };
-  img.src = pk.prevUrl;
+  const img = $('pk-previmg'), vid = $('pk-prevvid'), video = isVideo(it.file);
+  img.hidden = video; vid.hidden = !video;
+  if (video) { vid.poster = it.thumb || ''; vid.src = pk.prevUrl; img.removeAttribute('src'); }
+  else {
+    if (vid.getAttribute('src')) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
+    img.onerror = () => { if (it.thumb && img.src !== it.thumb) img.src = it.thumb; };
+    img.src = pk.prevUrl;
+  }
   $('pk-prevmeta').textContent = `${it.file.name} · ${fmtDate(it.t)}`;
   $('pk-prevpick').textContent = it.on ? 'Selected ✓' : 'Select';
   $('pk-prev').classList.add('open');
@@ -1219,7 +1378,8 @@ function pkStep(d) {
   for (let j = pk.prev + d; j >= 0 && j < pk.items.length; j += d) if (pkVisible(j)) { pkPreview(j); return; }
 }
 function pkPrevClose() {
-  $('pk-prev').classList.remove('open'); $('pk-previmg').src = '';
+  $('pk-prev').classList.remove('open'); $('pk-previmg').removeAttribute('src');
+  const vid = $('pk-prevvid'); if (vid.getAttribute('src')) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
   if (pk.prevUrl) { URL.revokeObjectURL(pk.prevUrl); pk.prevUrl = null; }
   const it = pk.items[pk.prev]; if (it && it.el) it.el.focus();
 }

@@ -16,7 +16,7 @@ ACCESS_AUD = ""
 
 [[rules]]
 type = "Text"
-globs = ["**/*.html", "**/*.svg"]
+globs = ["**/*.html", "**/*.svg", "**/mediabunny.min.mjs"]
 fallthrough = true
 
 [[rules]]

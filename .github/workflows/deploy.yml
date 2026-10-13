@@ -60,6 +60,11 @@ jobs:
           echo "Using D1 database $id"
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$id/" ingest/wrangler.toml web/wrangler.toml public/wrangler.toml
           npx wrangler d1 execute trolaspy --remote --file schema.sql -c ingest/wrangler.toml
+          # Columns added after a table was first made (CREATE TABLE IF NOT EXISTS skips them).
+          if ! npx wrangler d1 execute trolaspy --remote --json -c ingest/wrangler.toml --command "PRAGMA table_info(photos)" \
+               | jq -e '.[0].results[] | select(.name == "duration")' > /dev/null; then
+            npx wrangler d1 execute trolaspy --remote -c ingest/wrangler.toml --command "ALTER TABLE photos ADD COLUMN duration REAL"
+          fi
 
       - name: Create the photo bucket (R2)
         if: steps.check.outputs.ready == 'true'
