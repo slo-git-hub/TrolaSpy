@@ -640,6 +640,8 @@ function renderLatest({ reading: r, lastPosition, co2_g_per_km: co2g }) {
     ['Odometer', r.odo === null ? '–' : Number(r.odo).toLocaleString(), 'km'],
     ['Pack', `${n(r.bat_volts)}`, `V · ${n(r.bat_amps, 1)} A`],
     ['Elevation', n(r.elv), 'm'],
+    ['Motor', r.rpm === null ? '–' : Math.abs(r.rpm).toLocaleString(), 'rpm'],
+    ['Tablet battery', n(r.dev_bat), '%'],
   ];
   $('tiles').innerHTML = tiles.map(([k, v, u]) => `<div class="tile"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
   $('co2total').innerHTML = r.odo && co2g ? co2((r.odo * co2g) / 1000) : '–';
