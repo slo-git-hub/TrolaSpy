@@ -82,6 +82,26 @@
   .chip.drive { background: var(--accent-soft); color: var(--accent-ink); }
   .chip.charge { background: var(--charge-soft); color: var(--charge); }
   .updated { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .chip.maplink { margin-top: 10px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+  .chip.maplink[hidden] { display: none; }
+  #herocard { position: relative; }
+  /* Help bubbles: a "?" on each card; the text shows in one bubble near it. */
+  .help { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+    background: var(--off); color: var(--muted); font: 700 12px/22px inherit; text-align: center; }
+  .help:hover, .help.on { background: var(--accent-soft); color: var(--accent-ink); }
+  .help.corner { position: absolute; top: 12px; right: 12px; }
+  .hd { display: flex; align-items: center; gap: 6px; }
+  .helptip { position: fixed; z-index: 4000; width: max-content; max-width: min(300px, calc(100vw - 24px)); padding: 10px 12px;
+    background: var(--solid); color: var(--text); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+    font-size: 13px; line-height: 1.45; }
+  .helptip p { margin: 0; }
+  .helptip p + p { margin-top: 6px; }
+  .social { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .social a { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    background: var(--accent-soft); color: var(--accent-ink); text-decoration: none; }
+  .social svg, .foot svg { width: 16px; height: 16px; flex: none; }
+  .foot .links { display: flex; gap: 12px; align-items: center; }
+  .foot .links a { display: inline-flex; }
 
   .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tile { background: var(--solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
@@ -428,7 +448,8 @@
     <div class="live" data-live><i></i><span>Offline</span></div>
   </header>
 
-  <section class="card">
+  <section class="card" id="herocard">
+    <button class="help corner" data-help="hero" aria-label="What is this?">?</button>
     <div class="hero">
       <div class="ring" id="ring">
         <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="50"/><circle class="val" id="ringval" cx="60" cy="60" r="50" stroke-dasharray="314.16" stroke-dashoffset="314.16"/></svg>
@@ -437,6 +458,7 @@
       <div>
         <div class="chips" id="chips"></div>
         <div class="updated" id="updated">Loading…</div>
+        <a class="chip maplink" id="gmaps" target="_blank" rel="noopener" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Open in Maps ↗</a>
       </div>
     </div>
   </section>
@@ -445,7 +467,7 @@
 
   <section class="card">
     <div class="chart-head">
-      <h2 id="rangeTitle">Last 24 hours</h2>
+      <div class="hd"><h2 id="rangeTitle">Last 24 hours</h2><button class="help" data-help="stats" aria-label="What is this?">?</button></div>
       <div class="seg" id="range">
         <button data-h="24" class="active">24h</button>
         <button data-h="168">7d</button>
@@ -457,12 +479,12 @@
   </section>
 
   <section class="card" id="chargecard" hidden>
-    <div class="chart-head"><h2>Charging</h2><span class="sub" id="chargesum"></span></div>
+    <div class="chart-head"><div class="hd"><h2>Charging</h2><button class="help" data-help="charging" aria-label="What is this?">?</button></div><span class="sub" id="chargesum"></span></div>
     <div id="chargelist"></div>
   </section>
 
   <section class="card" id="solarcard" hidden>
-    <div class="chart-head"><h2>Solar &amp; leisure battery</h2><span class="sub" id="solarsub"></span></div>
+    <div class="chart-head"><div class="hd"><h2>Solar &amp; leisure battery</h2><button class="help" data-help="solar" aria-label="What is this?">?</button></div><span class="sub" id="solarsub"></span></div>
     <div class="stats" id="solarstats"></div>
     <div class="regen solarstate" id="solarstate"></div>
     <div class="chart-head solarhead">
@@ -475,7 +497,7 @@
   </section>
 
   <section class="card" id="dcdccard" hidden>
-    <div class="chart-head"><h2>DC-DC charger</h2><span class="sub" id="dcdcsub"></span></div>
+    <div class="chart-head"><div class="hd"><h2>DC-DC charger</h2><button class="help" data-help="dcdc" aria-label="What is this?">?</button></div><span class="sub" id="dcdcsub"></span></div>
     <div class="stats" id="dcdcstats"></div>
     <div class="regen solarstate" id="dcdcstate"></div>
     <div class="legend solarhead"><span><i style="background:var(--accent)"></i>Van battery</span></div>
@@ -492,6 +514,7 @@
         <button data-m="kw">Power</button>
         <button data-m="temp">Temp</button>
       </div>
+      <button class="help" data-help="chart" aria-label="What is this?">?</button>
     </div>
     <div class="legend" id="legend"></div>
     <div class="chart" id="chart"></div>
@@ -499,7 +522,7 @@
 
   <section class="card" id="monthcard">
     <div class="chart-head">
-      <h2 id="monthTitle">This month</h2>
+      <div class="hd"><h2 id="monthTitle">This month</h2><button class="help" data-help="month" aria-label="What is this?">?</button></div>
       <div class="seg nav"><button id="mprev" aria-label="Previous month">‹</button><button id="mnext" aria-label="Next month">›</button></div>
     </div>
     <div class="stats mstats" id="mstats"></div>
@@ -509,7 +532,7 @@
   </section>
 
   <section class="card" id="aboutcard">
-    <div class="chart-head"><h2>About Trola</h2></div>
+    <div class="chart-head"><div class="hd"><h2>About Trola</h2><button class="help" data-help="about" aria-label="What is this?">?</button></div></div>
     <div class="tiles">
       <div class="tile"><span>Model · Nissan</span><b>e&#8209;NV200</b></div>
       <div class="tile"><span>Year</span><b>2018</b></div>
@@ -518,6 +541,11 @@
     </div>
     <div class="regen">CO₂ saved is a rough guess: Trola against a diesel van of the same size over the same distance,
       counting the CO₂ from making Trola's electricity.</div>
+    <div class="social">
+      <a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.6" fill="currentColor"/></svg>Instagram</a>
+      <a href="https://www.facebook.com/trolaontheroad" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 22v-8.2h2.8l.4-3.3h-3.2V8.4c0-.9.3-1.6 1.6-1.6h1.7V3.9a23 23 0 0 0-2.5-.1c-2.5 0-4.2 1.5-4.2 4.3v2.4H7.3v3.3h2.8V22z"/></svg>Facebook</a>
+      <a href="mailto:trolaontheroad@gmail.com"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg>trolaontheroad@gmail.com</a>
+    </div>
   </section>
 
   <section class="card" id="admincard" hidden>
@@ -589,7 +617,7 @@
     </div>
   </section>
 
-  <div class="foot"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener">@trolaontheroad</a><span id="coords"></span><a id="gmaps" target="_blank" rel="noopener" hidden>Open in Maps ↗</a></div>
+  <div class="foot"><span class="links"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener" aria-label="Instagram"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.6" fill="currentColor"/></svg></a><a href="https://www.facebook.com/trolaontheroad" target="_blank" rel="noopener" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 22v-8.2h2.8l.4-3.3h-3.2V8.4c0-.9.3-1.6 1.6-1.6h1.7V3.9a23 23 0 0 0-2.5-.1c-2.5 0-4.2 1.5-4.2 4.3v2.4H7.3v3.3h2.8V22z"/></svg></a><a href="mailto:trolaontheroad@gmail.com" aria-label="Email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg></a>@trolaontheroad</span><span id="coords"></span></div>
 </div>
 
 <div class="report" id="report" hidden>
@@ -631,6 +659,56 @@ const ICON = {
   bolt: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
 };
 const CHARGE = { 1: 'Charging', 2: 'Charging', 3: 'Fast charging' };
+
+// What each card shows, for its "?" bubble.
+const HELP = {
+  hero: `<p>The ring is the battery's charge as LeafSpy reads it, with the hidden reserve included, so it reads
+    higher than the car's dashboard, most of all when the battery is low. Gids are the battery's own energy count, about 78 Wh each.</p>
+    <p><b>Live</b> means LeafSpy sent a reading in the last 5 minutes (15 while charging). The tiles below are its newest reading;
+    values the car stops sending when it is switched off show the last known value.</p>
+    <p><b>Open in Maps</b> shows Trola's last known spot in Google Maps.</p>`,
+  stats: `<p>Totals for the last 24 hours, 7 days or 30 days. Distance comes from the odometer; driving time counts while moving.</p>
+    <p><b>Energy used</b> is what came out of the battery for driving, heating and everything else; <b>regen</b> is what
+    braking and downhills put back.
+    <b>Consumption</b> is used minus regen per 100 km. <b>Charged</b> is the energy that went into the battery from charging.</p>`,
+  charging: `<p>Each charging stop: when it started, how long it took, the energy that went into the battery, the average and
+    peak power, and the battery % before and after.</p>
+    <p><b>DC</b> is a fast charger, <b>AC</b> a normal one. <b>LeafSpy off</b> means LeafSpy wasn't running, so the energy is
+    worked out from the battery before and after. Tap a stop to see it on the map.</p>`,
+  solar: `<p>The solar panels and the leisure battery that runs the camper side, read from the Victron solar charger over
+    Bluetooth by the TrolaSpy Bridge app on the tablet.</p>
+    <p>The leisure battery % is an estimate from its voltage. The bars are the solar energy of each of the last 30 days.</p>`,
+  dcdc: `<p>The DC-DC charger tops up the leisure battery from the van's own 12 V battery while Trola is on.
+    It is read over Bluetooth by the TrolaSpy Bridge app.</p>
+    <p>The line is the van battery's voltage; the bars are how long it charged on each of the last 30 days.</p>`,
+  chart: `<p>Battery %, speed, power or temperatures over the period chosen above (24 hours, 7 days or 30 days).</p>
+    <p>On the power chart, above 0 is power drawn from the battery and below 0 is regen or charging. Move along the chart to read the values.</p>`,
+  month: `<p>A calendar month: totals, and the distance of each day. Use the arrows for earlier months.</p>
+    <p>The cost shows when an electricity price is set in Admin. Days run from midnight to midnight UTC.</p>`,
+  about: `<p>Trola's basics. CO₂ saved compares Trola with a diesel van like the NV200 (about 160 g of CO₂ per km)
+    over the same distance, and counts the CO₂ from making Trola's electricity (about 55 g per km).</p>`,
+};
+const helpTip = Object.assign(document.createElement('div'), { className: 'helptip', hidden: true });
+helpTip.setAttribute('role', 'tooltip');
+document.body.appendChild(helpTip);
+let helpBtn = null;
+function closeHelp() { helpTip.hidden = true; if (helpBtn) helpBtn.classList.remove('on'); helpBtn = null; }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.help');
+  if (!b) { if (!helpTip.contains(e.target)) closeHelp(); return; }
+  const same = b === helpBtn;
+  closeHelp();
+  if (same) return;
+  helpBtn = b; b.classList.add('on');
+  helpTip.innerHTML = HELP[b.dataset.help] || ''; helpTip.hidden = false;
+  // Below the button and lined up with its right edge, kept on screen; above it if there's no room below.
+  const r = b.getBoundingClientRect(), w = helpTip.offsetWidth, h = helpTip.offsetHeight;
+  helpTip.style.left = `${Math.min(Math.max(12, r.right - w), innerWidth - w - 12)}px`;
+  helpTip.style.top = `${r.bottom + 8 + h > innerHeight - 8 ? Math.max(8, r.top - h - 8) : r.bottom + 8}px`;
+});
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closeHelp(); });
+addEventListener('scroll', closeHelp, true);
+addEventListener('resize', closeHelp);
 const n = (v, d = 0) => (v === null || v === undefined ? '–' : Number(v).toFixed(d));
 const co2 = (kg, unit = (u) => `<small>${u}</small>`) => (kg >= 1000 ? `${n(kg / 1000, 1)}${unit('t')}` : `${Math.round(kg)}${unit('kg')}`);
 

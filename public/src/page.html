@@ -90,6 +90,9 @@
   .foot { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; align-items: center;
     font-size: 12px; color: var(--muted); padding: 0 4px; }
   .foot a { color: var(--accent-ink); text-decoration: none; font-weight: 600; }
+  .foot .links { display: flex; gap: 12px; align-items: center; }
+  .foot .links a { display: inline-flex; }
+  .foot svg { width: 16px; height: 16px; }
 
   .van { width: 46px; height: 46px; border-radius: 50%; border: 2px solid #fff; overflow: hidden;
     box-shadow: 0 0 0 3px var(--accent), 0 6px 16px rgba(0,0,0,.35); background: #fff; }
@@ -175,7 +178,7 @@
     <div class="grid" id="grid"></div>
   </section>
 
-  <div class="foot"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener">@trolaontheroad</a><span>The exact spot stays private.</span></div>
+  <div class="foot"><span class="links"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener" aria-label="Instagram"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.6" fill="currentColor"/></svg></a><a href="https://www.facebook.com/trolaontheroad" target="_blank" rel="noopener" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 22v-8.2h2.8l.4-3.3h-3.2V8.4c0-.9.3-1.6 1.6-1.6h1.7V3.9a23 23 0 0 0-2.5-.1c-2.5 0-4.2 1.5-4.2 4.3v2.4H7.3v3.3h2.8V22z"/></svg></a><a href="mailto:trolaontheroad@gmail.com" aria-label="Email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg></a>@trolaontheroad</span><span>The exact spot stays private.</span></div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
