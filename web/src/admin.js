@@ -1,16 +1,37 @@
-// Admin-only API: alert, public-page and Victron settings, battery health, and backup / restore / delete of readings.
+// Admin-only API: alert, public-page and Victron settings, battery health, reports, and backup / restore / delete of readings.
 import { COLUMNS } from '../../ingest/src/parse.js';
 import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared/alerts.js';
 import { createVapidKeys } from '../../shared/push.js';
 import { DETAIL_KM, DELAYS_H, publicSettings } from '../../shared/public.js';
-import { ensureDays, forgetDays } from '../../shared/stats.js';
-import { archiveSessions, rewindSessions } from '../../shared/charges.js';
+import { ensureDays, forgetDays, listDays } from '../../shared/stats.js';
+import { archiveSessions, listSessions, rewindSessions } from '../../shared/charges.js';
+import { victronDays } from '../../shared/victron-days.js';
+import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
 const EXPORT_PAGE = 2000;
 const IMPORT_MAX = 500;
+const DAY_MS = 864e5;
+const REPORT_MAX_DAYS = 400;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Day summaries, solar days and charging sessions for the days from..to (YYYY-MM-DD, UTC days,
+// both included). Days not summed up yet are worked out first, a few per call: until then the
+// answer is { pending: true } and the page asks again.
+async function report(db, from, to) {
+  const a = Date.parse(`${from}T00:00:00Z`), b = Date.parse(`${to}T00:00:00Z`), now = Date.now();
+  if (!DAY_RE.test(from) || !DAY_RE.test(to) || !(a <= b)) return { error: 'Pick a start and an end day.' };
+  if ((b - a) / DAY_MS >= REPORT_MAX_DAYS) return { error: `Pick at most ${REPORT_MAX_DAYS} days.` };
+  // A call that worked out days stops there, to stay well inside the free plan's 50 subrequests.
+  if (await ensureDays(db, a, b + DAY_MS) > 0) return { pending: true };
+  const solar = await victronDays(db, now, a, Math.min(b, Math.floor(now / DAY_MS) * DAY_MS), 20);
+  if (solar.more) return { pending: true };
+  const [days, sessions, s] = await Promise.all([listDays(db, from, to), listSessions(db), getSettings(db, ['price'])]);
+  return { from, to, days, solar: solar.days, price: s.price ?? null, co2_g_per_km: CO2_SAVED_G_PER_KM,
+    charges: sessions.filter((c) => c.start_ts >= a && c.start_ts < b + DAY_MS).reverse() };
+}
 
 // TrolaSpy's own key pair for signing alerts, made the first time the admin page asks.
 async function vapid(db, url) {
@@ -118,6 +139,11 @@ export async function handleAdmin(request, env, url) {
     } catch (e) {
       return json({ ok: false, error: `Could not send: ${e.message}` }, 502);
     }
+  }
+
+  if (path === 'report' && method === 'GET') {
+    const r = await report(db, url.searchParams.get('from') || '', url.searchParams.get('to') || '');
+    return json(r, r.error ? 400 : 200);
   }
 
   if (path === 'health' && method === 'GET') {

@@ -8,11 +8,14 @@ import { manifest, serviceWorker } from './pwa.js';
 // Video shrinking in the browser (WebCodecs), served from here and loaded only when a video is added.
 import mediabunny from '../../node_modules/mediabunny/dist/bundles/mediabunny.min.mjs';
 const MEDIABUNNY_PATH = '/vendor/mediabunny-1.59.1.mjs';
+// The admin report's Excel writer, loaded only when a file is made.
+import xlsxModule from './xlsx.mjs';
 import { listSessions } from '../../shared/charges.js';
 import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js';
 import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
+import { RUN_GAP_MS, victronDays } from '../../shared/victron-days.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -77,41 +80,11 @@ async function track(env, hours) {
   return { since, bucketMs, points: results };
 }
 
-// Victron solar charger and DC-DC charger: newest values, a time series for each chart, the
-// solar yield per day (the charger's own "today" total, taken while the sun is on the panels,
-// since it only resets when they wake up the next morning) and how long the DC-DC charger ran
-// per day. A row is stored on every change and at least every 15 minutes, so each "on" row
-// counts until the next one, but for at most RUN_GAP_MS (the bridge app may have stopped).
-// Finished days are kept in victron_days, so only today's rows are read for the day bars.
-const RUN_GAP_MS = 20 * 60 * 1000;
+// Victron solar charger and DC-DC charger: newest values, a time series for each chart, and the
+// day totals of the last 30 days (see victron-days.js).
 const DAY_MS = 864e5;
-const victronDay = (db, from, to, now) => [
-  db.prepare(`SELECT MAX(yield_wh) AS wh FROM victron WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? AND ts < ?`).bind(from, to),
-  db.prepare(`WITH r AS (SELECT ts, state, LEAD(ts) OVER (ORDER BY ts) AS nx FROM victron WHERE kind = 'dcdc' AND ts >= ?1 AND ts < ?2 + ?3)
-              SELECT SUM(MIN(COALESCE(nx, ?4), ts + ?3) - ts) AS on_ms FROM r WHERE state > 0 AND ts < ?2`).bind(from, to, RUN_GAP_MS, now),
-];
-async function victronDays(db, now) {
-  const today = Math.floor(now / DAY_MS) * DAY_MS, first = today - 30 * DAY_MS;
-  const { results: stored } = await db.prepare('SELECT * FROM victron_days WHERE day >= ?').bind(dayKey(first)).all();
-  const have = new Set(stored.map((d) => d.day));
-  // A day is stored once over (and the DC-DC charger's last run in it counted); a few per call.
-  const store = [], live = [];
-  for (let t = first; t <= today; t += DAY_MS) {
-    if (have.has(dayKey(t))) continue;
-    if (t + DAY_MS + RUN_GAP_MS > now) live.push(t); else if (store.length < 10) store.push(t);
-  }
-  const want = [...store, ...live];
-  const res = await db.batch(want.flatMap((t) => victronDay(db, t, t + DAY_MS, now)));
-  const got = want.map((t, i) => ({ day: dayKey(t), solar_wh: res[2 * i].results[0].wh, dcdc_on_ms: res[2 * i + 1].results[0].on_ms }));
-  if (store.length) {
-    const ins = db.prepare('INSERT OR REPLACE INTO victron_days (day, solar_wh, dcdc_on_ms) VALUES (?, ?, ?)');
-    await db.batch(got.slice(0, store.length).map((d) => ins.bind(d.day, d.solar_wh, d.dcdc_on_ms)));
-  }
-  return [...stored, ...got].sort((a, b) => (a.day < b.day ? -1 : 1));
-}
-
 async function solar(env, hours) {
-  const now = Date.now(), since = now - hours * 3600e3;
+  const now = Date.now(), since = now - hours * 3600e3, today = Math.floor(now / DAY_MS) * DAY_MS;
   const bucketMs = Math.max(60_000, Math.ceil((hours * 3600e3) / 600));
   const one = (kind) => env.DB.prepare('SELECT * FROM victron WHERE kind = ? ORDER BY ts DESC LIMIT 1').bind(kind).first();
   const [sol, dcdc, pts, dpts, days, rest] = await Promise.all([
@@ -120,7 +93,7 @@ async function solar(env, hours) {
                       FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(in_v), 2) AS in_v FROM victron
                      WHERE kind = 'dcdc' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
-    victronDays(env.DB, now),
+    victronDays(env.DB, now, today - 30 * DAY_MS, today).then((v) => v.days),
     // The leisure battery's newest voltage while neither charger was charging it (last 24 h).
     env.DB.prepare(`SELECT ts, batt_v FROM victron s
                      WHERE kind = 'solar' AND ts >= ?1 AND batt_v > 0 AND COALESCE(batt_a, 0) < ${CHARGING_A} AND COALESCE(state, 0) NOT IN (${HELD.join(', ')})
@@ -186,6 +159,9 @@ export default {
     }
     if (url.pathname === MEDIABUNNY_PATH) {
       return new Response(mediabunny, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'private, max-age=31536000, immutable' } });
+    }
+    if (url.pathname === '/vendor/xlsx.mjs') {
+      return new Response(xlsxModule, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'private, no-cache' } });
     }
     if (url.pathname.startsWith('/api/admin/')) {
       if (!admin) return json({ error: 'Only the admin can do that.' }, 403);

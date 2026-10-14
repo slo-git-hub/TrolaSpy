@@ -306,6 +306,27 @@
   .leaflet-control-attribution a { color: var(--muted); }
   .leaflet-control-zoom { display: none; }
 
+  /* Admin report: a page over everything, printed on its own (Save as PDF). */
+  .report { position: fixed; inset: 0; z-index: 5000; overflow: auto; overscroll-behavior: contain; background: var(--bg); color: var(--text); }
+  .report .rp-tools { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; justify-content: flex-end; padding: 10px 16px; background: var(--bg); }
+  .report .btn { padding: 7px 12px; font-size: 13px; background: var(--off); color: var(--text); }
+  .report .btn.primary { background: var(--accent); color: #fff; }
+  .rp-page { max-width: 760px; margin: 0 auto 40px; padding: 0 16px; }
+  .report.printing .rp-page { width: 700px; max-width: none; padding: 0; }
+  .rp-page h1 { font-size: 20px; margin: 0; }
+  .rp-page h2 { font-size: 14px; margin: 22px 0 8px; }
+  .rp-page .rp-sub, .rp-page .rp-note { color: var(--muted); font-size: 12px; margin: 2px 0 14px; }
+  .rp-page .chart { height: 130px; }
+  .rp-page .legend { margin: 14px 0 4px; }
+  .rp-page .rp-charge .bar { fill: var(--charge); }
+  .rp-page .rp-solar .bar { fill: var(--s-solar); }
+  .rp-scroll { overflow-x: auto; }
+  .rp-page table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .rp-page th, .rp-page td { padding: 4px 5px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  .rp-page th:first-child, .rp-page td:first-child { text-align: left; }
+  .rp-page th { color: var(--muted); font-weight: 600; font-size: 10.5px; white-space: normal; vertical-align: bottom; }
+  .rp-page tr.total td { font-weight: 700; border-bottom: 0; }
+
   /* Phones: map on top, cards scroll underneath like a sheet. */
   @media (max-width: 760px) {
     #map { position: relative; height: 52dvh; inset: auto; }
@@ -321,6 +342,18 @@
     .ring { width: 100px; height: 100px; }
     .stats { grid-template-columns: repeat(2, 1fr); }
     .leaflet-bottom { bottom: 32px; }
+  }
+  @media print {
+    @page { size: A4; margin: 12mm; }
+    html, body { height: auto !important; background: #fff !important; }
+    body > *:not(.report) { display: none !important; }
+    .report { position: static; overflow: visible; background: #fff; }
+    .report .rp-tools, .report .tip { display: none !important; }
+    .report .rp-page .stats { grid-template-columns: repeat(4, 1fr); }
+    .rp-scroll { overflow: visible; }
+    .rp-page tr, .rp-page .rp-block, .rp-page .stats { break-inside: avoid; }
+    .rp-page h2 { break-after: avoid; }
+    .rp-page table { font-size: 10.5px; }
   }
 </style>
 </head>
@@ -538,6 +571,11 @@
       <h3>Storage</h3>
       <div class="note">Cloudflare's free plan allows 500 MB for the database and 10 GB for photos.</div>
       <div class="meters" id="dt-storage"></div>
+      <h3>Report</h3>
+      <div class="note">Totals, charts and tables for the days you pick. The PDF report opens as a page: choose Save as PDF in the
+        print window. The Excel file has the numbers for every day and every charge.</div>
+      <div class="row">From <input type="date" id="rp-from"> to <input type="date" id="rp-to"></div>
+      <div class="btns"><button class="btn primary" id="rp-pdf">PDF report</button><button class="btn" id="rp-xlsx">Excel file</button><span class="msg" id="rp-msg"></span></div>
       <h3>Backup</h3>
       <div class="btns"><button class="btn primary" id="dt-backup">Download all readings (CSV)</button><span class="msg" id="dt-bmsg"></span></div>
       <h3>Restore</h3>
@@ -552,6 +590,11 @@
   </section>
 
   <div class="foot"><a href="https://www.instagram.com/trolaontheroad/" target="_blank" rel="noopener">@trolaontheroad</a><span id="coords"></span><a id="gmaps" target="_blank" rel="noopener" hidden>Open in Maps ↗</a></div>
+</div>
+
+<div class="report" id="report" hidden>
+  <div class="rp-tools"><button class="btn primary" id="rp-print">Save as PDF</button><button class="btn" id="rp-close">Close</button></div>
+  <div class="rp-page" id="rp-page"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"
@@ -1916,8 +1959,214 @@ async function loadDataInfo() {
     say('dt-sum', d.n ? `${d.n.toLocaleString()} readings stored, from ${fmtDate(d.first)} to ${fmtDate(d.last)}.` : 'No readings stored yet.');
     showStorage(d);
     if (d.n && !$('dt-from').value) { $('dt-from').value = dateIn(d.first); $('dt-to').value = dateIn(d.first); }
+    if (!$('rp-from').value) { $('rp-to').value = dateIn(Date.now()); $('rp-from').value = `${dateIn(Date.now()).slice(0, 8)}01`; }
   } catch (e) { say('dt-sum', e.message); }
 }
+// ---------- Report: totals, charts and tables for chosen days (PDF by printing, or Excel) ----------
+// Days are UTC days, as everywhere in TrolaSpy. Longer ranges are charted and listed by week or month.
+let rpData = null, rpTheme = null;
+const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
+const keyMs = (k) => Date.parse(`${k}T00:00:00Z`);
+const longDate = (k, o) => new Date(`${k}T12:00:00Z`).toLocaleDateString([], { timeZone: 'UTC', ...o });
+const hmin = (s) => { const m = Math.round((s || 0) / 60); return m >= 60 ? [`${Math.floor(m / 60)}h ${m % 60}`, 'min'] : [String(m), 'min']; };
+const chargeType = (c) => (c.mode === 3 ? 'DC' : c.mode ? 'AC' : 'LeafSpy off');
+
+async function reportData() {
+  const from = $('rp-from').value, to = $('rp-to').value;
+  if (!from || !to) throw new Error('Pick a start and an end day.');
+  for (let i = 0; i < 120; i++) {
+    const d = await api(`report?from=${from}&to=${to}`);
+    if (!d.pending) return d;
+    say('rp-msg', `Adding up past days${'.'.repeat((i % 3) + 1)}`);
+  }
+  throw new Error('This is taking long. Try again, or pick fewer days.');
+}
+
+// Totals over day summaries and solar days.
+function rpTotals(days, sol) {
+  const sum = (a, k) => a.reduce((t, x) => t + (x[k] || 0), 0);
+  const pick = (a, k, f) => a.reduce((t, x) => (x[k] === null || x[k] === undefined ? t : t === null ? x[k] : f(t, x[k])), null);
+  const km = sum(days, 'distance_km'), used = sum(days, 'used_kwh'), regen = sum(days, 'regen_kwh');
+  const soh = days.filter((x) => x.soh);
+  return {
+    km, used, regen, drive_s: sum(days, 'drive_s'), charged: sum(days, 'charged_kwh'), charges: sum(days, 'charges'),
+    cons: km >= 1 ? ((used - regen) / km) * 100 : null, top: pick(days, 'max_speed', Math.max),
+    amb_min: pick(days, 'amb_min', Math.min), amb_max: pick(days, 'amb_max', Math.max),
+    solar: sol.some((x) => x.solar_wh !== null) ? sum(sol, 'solar_wh') / 1000 : null,
+    out: days.filter((x) => x.distance_km > 0).length,
+    soh_first: soh.length ? soh[0].soh : null, soh_last: soh.length ? soh[soh.length - 1].soh : null,
+  };
+}
+
+// The days of the range, grouped by day, week (from Monday) or month.
+function rpSlots(d) {
+  const a = keyMs(d.from), b = keyMs(d.to), span = Math.round((b - a) / DAY_MS) + 1;
+  const per = span <= 62 ? 'day' : span <= 190 ? 'week' : 'month';
+  const byDay = Object.fromEntries(d.days.map((x) => [x.day, x])), sol = Object.fromEntries(d.solar.map((x) => [x.day, x]));
+  const slots = [];
+  for (let t = a; t <= b; t += DAY_MS) {
+    const k = utcDay(t);
+    const key = per === 'day' ? k : per === 'week' ? utcDay(t - ((new Date(t).getUTCDay() + 6) % 7) * DAY_MS) : k.slice(0, 7);
+    let s = slots[slots.length - 1];
+    if (!s || s.key !== key) slots.push(s = { key, days: [], sol: [] });
+    if (byDay[k]) s.days.push(byDay[k]);
+    if (sol[k] && (sol[k].solar_wh != null || sol[k].dcdc_on_ms != null)) s.sol.push(sol[k]);
+  }
+  for (const s of slots) {
+    s.t = rpTotals(s.days, s.sol);
+    s.label = per === 'month' ? longDate(`${s.key}-15`, { month: 'short', year: '2-digit' }) : longDate(s.key, { day: 'numeric', month: 'short' });
+    s.long = per === 'day' ? longDate(s.key, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+      : per === 'week' ? `Week of ${longDate(s.key, { day: 'numeric', month: 'short', year: 'numeric' })}`
+      : longDate(`${s.key}-15`, { month: 'long', year: 'numeric' });
+    s.short = per === 'day' ? longDate(s.key, { weekday: 'short', day: 'numeric', month: 'short' })
+      : per === 'week' ? longDate(s.key, { day: 'numeric', month: 'short', year: '2-digit' }) : s.long;
+  }
+  return { per, span, slots };
+}
+
+const RP_CHARTS = [
+  { name: 'Distance', unit: 'km', digits: 0, v: (t) => t.km },
+  { name: 'Energy used', unit: 'kWh', digits: 1, v: (t) => t.used },
+  { name: 'Consumption', unit: 'kWh/100 km', digits: 1, v: (t) => t.cons },
+  { name: 'Charged', unit: 'kWh', digits: 1, v: (t) => t.charged, cls: 'rp-charge' },
+  { name: 'Solar', unit: 'kWh', digits: 2, v: (t) => t.solar, cls: 'rp-solar', solar: true },
+];
+
+function renderReport() {
+  const d = rpData; if (!d) return;
+  const { per, span, slots } = rpSlots(d), T = rpTotals(d.days, d.solar);
+  const range = d.from === d.to ? longDate(d.from, { day: 'numeric', month: 'long', year: 'numeric' })
+    : `${longDate(d.from, { day: 'numeric', month: 'long', year: 'numeric' })} – ${longDate(d.to, { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  const dc = d.charges.filter((c) => c.mode === 3).length;
+  const items = [
+    ['Distance', Math.round(T.km).toLocaleString(), 'km'],
+    ['Driving', ...hmin(T.drive_s)],
+    ['Days driven', String(T.out), `of ${span}`],
+    ['Top speed', n(T.top), 'km/h'],
+    ['Energy used', n(T.used, 1), 'kWh'],
+    ['Regen', n(T.regen, 1), T.used > 0.05 ? `kWh · ${Math.round((T.regen / T.used) * 100)}% back` : 'kWh'],
+    ['Consumption', T.cons === null ? '–' : n(T.cons, 1), 'kWh/100km'],
+    ['Charged', n(T.charged, 1), 'kWh'],
+    ['Charges', String(d.charges.length), dc ? `${dc} DC` : ''],
+    d.price !== null ? ['Cost', n(T.charged * d.price, 2), '€'] : null,
+    T.solar !== null ? ['Solar', n(T.solar, 1), 'kWh'] : null,
+    T.km >= 1 && d.co2_g_per_km ? ['CO₂ saved', co2((T.km * d.co2_g_per_km) / 1000, (u) => `<small>${u}</small>`), ''] : null,
+    T.soh_first !== null ? ['Battery health', T.soh_first.toFixed(1) === T.soh_last.toFixed(1) ? n(T.soh_last, 1) : `${n(T.soh_first, 1)} → ${n(T.soh_last, 1)}`, '%'] : null,
+    T.amb_min !== null ? ['Outside', `${n(T.amb_min)} to ${n(T.amb_max)}`, '°C'] : null,
+  ].filter(Boolean);
+  const charts = RP_CHARTS.filter((c) => !c.solar || T.solar !== null);
+  const by = per === 'day' ? 'per day' : per === 'week' ? 'per week' : 'per month';
+  const solarCol = T.solar !== null;
+  const row = (label, t, cls = '') => `<tr${cls}><td>${label}</td><td>${n(t.km)}</td><td>${dur((t.drive_s || 0) * 1000)}</td><td>${n(t.used, 1)}</td>
+    <td>${n(t.regen, 1)}</td><td>${t.cons === null ? '–' : n(t.cons, 1)}</td><td>${n(t.charged, 1)}</td><td>${t.charges}</td><td>${n(t.top)}</td>
+    ${solarCol ? `<td>${t.solar === null ? '–' : n(t.solar, 2)}</td>` : ''}<td>${t.amb_min === null ? '–' : `${n(t.amb_min)} to ${n(t.amb_max)}`}</td></tr>`;
+  const rows = slots.filter((s) => s.days.length || s.sol.length).map((s) => row(s.short, s.t)).join('');
+  const charges = d.charges.map((c) => {
+    const avg = c.charge_ms > 0 ? c.kwh / (c.charge_ms / 3.6e6) : null;
+    return `<tr><td>${fmtDate(c.start_ts)}</td><td>${c.charge_ms ? '' : '≤ '}${dur(c.end_ts - c.start_ts)}</td><td>${n(c.kwh, 1)}</td>
+      <td>${avg === null ? '–' : n(avg, 1)}</td><td>${n(c.max_kw, 1)}</td><td>${n(c.soc_start)} → ${n(c.soc_end)}%</td><td>${chargeType(c)}</td></tr>`;
+  }).join('');
+  $('rp-page').innerHTML = `
+    <h1>Trola report</h1>
+    <div class="rp-sub">${range} · ${span} day${span > 1 ? 's' : ''}</div>
+    <div class="stats rp-block">${items.map(([k, v, u]) => `<div class="stat"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('')}</div>
+    <h2>Charts ${by}</h2>
+    ${charts.map((c, i) => `<div class="rp-block"><div class="legend"><span>${c.name} ${by} (${c.unit})</span></div><div class="chart ${c.cls || ''}" id="rp-c${i}"></div></div>`).join('')}
+    ${d.days.filter((x) => x.soh).length >= 2 ? '<div class="rp-block"><div class="legend"><span>Battery health (SOH, %)</span></div><div class="chart" id="rp-soh"></div></div>' : ''}
+    <h2>${per === 'day' ? 'Days' : per === 'week' ? 'Weeks' : 'Months'}</h2>
+    ${rows ? `<div class="rp-scroll"><table><thead><tr><th>${per === 'day' ? 'Day' : per === 'week' ? 'Week from' : 'Month'}</th><th>km</th><th>Driving</th><th>Used kWh</th>
+      <th>Regen kWh</th><th>kWh/100km</th><th>Charged kWh</th><th>Charges</th><th>Top km/h</th>${solarCol ? '<th>Solar kWh</th>' : ''}<th>Outside °C</th></tr></thead>
+      <tbody>${rows}${row('Total', T, ' class="total"')}</tbody></table></div>` : '<div class="rp-note">No readings in these days.</div>'}
+    <h2>Charging</h2>
+    ${charges ? `<div class="rp-scroll"><table><thead><tr><th>Started</th><th>Time</th><th>kWh</th><th>Average kW</th><th>Peak kW</th><th>Battery</th><th>Type</th></tr></thead>
+      <tbody>${charges}</tbody></table></div>` : '<div class="rp-note">No charging in these days.</div>'}
+    <div class="rp-note">Made by TrolaSpy on ${fmtDate(Date.now())}. Days run from midnight to midnight UTC. Energy used and regen are worked out
+      from LeafSpy's readings, charged energy from the charging sessions; battery % is LeafSpy's.</div>`;
+  drawReportCharts();
+}
+
+function drawReportCharts() {
+  const d = rpData; if (!d) return;
+  const { slots } = rpSlots(d), T = rpTotals(d.days, d.solar);
+  RP_CHARTS.filter((c) => !c.solar || T.solar !== null).forEach((c, i) => barChart($(`rp-c${i}`), slots, {
+    value: (s) => Math.max(0, c.v(s.t) || 0),
+    tip: (s) => `${s.long} · ${c.v(s.t) === null ? '–' : n(c.v(s.t), c.digits)} ${c.unit}`,
+  }));
+  if ($('rp-soh')) {
+    lineChart($('rp-soh'), d.days.filter((x) => x.soh).map((x) => ({ t: keyMs(x.day) + DAY_MS / 2, v: x.soh })), { color: '--batt', unit: '%', digits: 1 });
+  }
+}
+
+function closeReport() {
+  $('report').hidden = true; rpData = null;
+  if (rpTheme) { document.documentElement.dataset.theme = rpTheme; rpTheme = null; }
+}
+$('rp-pdf').addEventListener('click', async () => {
+  const btn = $('rp-pdf'); btn.disabled = true; say('rp-msg', 'Loading…');
+  try {
+    rpData = await reportData();
+    // A printed page reads best light, whatever the screen uses.
+    rpTheme = document.documentElement.dataset.theme; document.documentElement.dataset.theme = 'light';
+    $('report').hidden = false; $('report').scrollTop = 0;
+    renderReport(); say('rp-msg', '');
+  } catch (e) { say('rp-msg', e.message); }
+  btn.disabled = false;
+});
+$('rp-print').addEventListener('click', () => print());
+$('rp-close').addEventListener('click', closeReport);
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('report').hidden) closeReport(); });
+// Charts are drawn to their box's width, so they are redrawn at the paper's width for printing.
+addEventListener('beforeprint', () => { if (!$('report').hidden) { $('report').classList.add('printing'); drawReportCharts(); } });
+addEventListener('afterprint', () => { if (!$('report').hidden) { $('report').classList.remove('printing'); drawReportCharts(); } });
+addEventListener('resize', () => { if (!$('report').hidden && !$('report').classList.contains('printing')) drawReportCharts(); });
+
+$('rp-xlsx').addEventListener('click', async () => {
+  const btn = $('rp-xlsx'); btn.disabled = true; say('rp-msg', 'Loading…');
+  try {
+    const d = await reportData(), { xlsx } = await import('/vendor/xlsx.mjs');
+    const T = rpTotals(d.days, d.solar), sol = Object.fromEntries(d.solar.map((x) => [x.day, x]));
+    const r1 = (v, k = 1) => (v === null || v === undefined ? null : Math.round(v * 10 ** k) / 10 ** k);
+    const summary = [
+      ['From', d.from, 'date'], ['To', d.to, 'date'], ['Distance (km)', r1(T.km)], ['Driving (h)', r1(T.drive_s / 3600, 2)],
+      ['Days driven', T.out], ['Top speed (km/h)', T.top], ['Energy used (kWh)', r1(T.used, 2)], ['Regen (kWh)', r1(T.regen, 2)],
+      ['Consumption (kWh/100 km)', r1(T.cons)], ['Charged (kWh)', r1(T.charged, 2)], ['Charges', d.charges.length],
+      ['Cost (€)', d.price !== null ? r1(T.charged * d.price, 2) : null], ['Solar (kWh)', r1(T.solar, 2)],
+      ['CO₂ saved (kg)', d.co2_g_per_km ? Math.round((T.km * d.co2_g_per_km) / 1000) : null],
+      ['Battery health at start (SOH %)', r1(T.soh_first)], ['Battery health at end (SOH %)', r1(T.soh_last)],
+      ['Outside, lowest (°C)', T.amb_min], ['Outside, highest (°C)', T.amb_max],
+    ];
+    const file = xlsx([
+      { name: 'Summary', cols: [{ header: 'Item', width: 32 }, { header: 'Value', width: 14 }],
+        rows: summary.map(([k, v, f]) => [k, f === 'date' ? longDate(v, { day: 'numeric', month: 'long', year: 'numeric' }) : v]) },
+      { name: 'Days', cols: [{ header: 'Day', fmt: 'date', width: 12 }, { header: 'Distance km', fmt: 'dec1' }, { header: 'Driving min', fmt: 'int' },
+        { header: 'Energy used kWh', fmt: 'dec2' }, { header: 'Regen kWh', fmt: 'dec2' }, { header: 'Consumption kWh/100km', fmt: 'dec1' },
+        { header: 'Charged kWh', fmt: 'dec2' }, { header: 'Charges', fmt: 'int' }, { header: 'Top speed km/h', fmt: 'int' },
+        { header: 'Strongest regen kW', fmt: 'dec1' }, { header: 'SOH %', fmt: 'dec1' }, { header: 'Hx %', fmt: 'dec1' }, { header: 'Capacity Ah', fmt: 'dec1' },
+        { header: 'Outside low °C', fmt: 'dec1' }, { header: 'Outside high °C', fmt: 'dec1' }, { header: 'Solar kWh', fmt: 'dec2' },
+        { header: 'DC-DC charging min', fmt: 'int' }, { header: 'Readings', fmt: 'int' }],
+        rows: [...new Set([...d.days, ...d.solar.filter((x) => x.solar_wh != null || x.dcdc_on_ms != null)].map((x) => x.day))].sort().map((k) => {
+          const x = d.days.find((y) => y.day === k) || {}, s = sol[k] || {};
+          const km = x.distance_km;
+          return [k, r1(km), x.drive_s == null ? null : Math.round(x.drive_s / 60), r1(x.used_kwh, 2), r1(x.regen_kwh, 2),
+            km >= 1 && x.used_kwh != null ? r1(((x.used_kwh - (x.regen_kwh || 0)) / km) * 100) : null, r1(x.charged_kwh, 2), x.charges,
+            x.max_speed == null ? null : Math.round(x.max_speed), r1(x.max_regen_kw), r1(x.soh), r1(x.hx), r1(x.ahr), r1(x.amb_min), r1(x.amb_max),
+            s.solar_wh == null ? null : r1(s.solar_wh / 1000, 2), s.dcdc_on_ms == null ? null : Math.round(s.dcdc_on_ms / 60000), x.readings];
+        }) },
+      { name: 'Charging', cols: [{ header: 'Started', fmt: 'datetime', width: 17 }, { header: 'Ended', fmt: 'datetime', width: 17 },
+        { header: 'Charging min', fmt: 'int' }, { header: 'Energy kWh', fmt: 'dec2' }, { header: 'Average kW', fmt: 'dec1' }, { header: 'Peak kW', fmt: 'dec1' },
+        { header: 'Battery start %', fmt: 'dec1' }, { header: 'Battery end %', fmt: 'dec1' }, { header: 'Type' }, { header: 'Latitude' }, { header: 'Longitude' }],
+        rows: d.charges.map((c) => [c.start_ts, c.end_ts, c.charge_ms ? Math.round(c.charge_ms / 60000) : null, r1(c.kwh, 2),
+          c.charge_ms > 0 ? r1(c.kwh / (c.charge_ms / 3.6e6)) : null, r1(c.max_kw), r1(c.soc_start), r1(c.soc_end), chargeType(c), r1(c.lat, 5), r1(c.lon, 5)]) },
+    ]);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([file], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = `trola-report-${d.from}-to-${d.to}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    say('rp-msg', 'Saved the Excel file.');
+  } catch (e) { say('rp-msg', e.message); }
+  btn.disabled = false;
+});
+
 $('dt-backup').addEventListener('click', async () => {
   const btn = $('dt-backup'); btn.disabled = true;
   try {
