@@ -1,4 +1,4 @@
-// Photo and video pins: list, serve, upload, caption and delete. Files are stored in R2 (binding
+// Photo and video pins: list, serve, upload, replace, caption and delete. Files are stored in R2 (binding
 // PHOTOS), metadata in D1. The browser shrinks photos and videos and makes the thumbnail (for a
 // video also a full-size frame) before uploading.
 
@@ -47,40 +47,73 @@ export async function positionAt(env, ts) {
   return json(best && Math.abs(best.ts - ts) <= TRACK_MATCH_MS ? { found: true, ...best } : { found: false });
 }
 
-export async function uploadPhoto(request, env, viewer) {
-  if (!env.PHOTOS) return json({ error: 'Photo storage (R2) is not set up yet.' }, 503);
-  const form = await request.formData();
+// The files of an upload: the shrunk photo, its thumbnail and, for a video, the MP4 and its length.
+function readFiles(form) {
   const image = form.get('image');
   const thumb = form.get('thumb');
-  const lat = num(form.get('lat'));
-  const lon = num(form.get('lon'));
-  if (!(image instanceof File) || !(thumb instanceof File)) return json({ error: 'Missing image.' }, 400);
-  if (image.type !== 'image/jpeg' || thumb.type !== 'image/jpeg') return json({ error: 'Images must be JPEG.' }, 400);
-  if (image.size > MAX_BYTES || thumb.size > MAX_BYTES) return json({ error: 'Image too large.' }, 413);
-  if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: 'Missing location.' }, 400);
+  if (!(image instanceof File) || !(thumb instanceof File)) return { error: 'Missing image.', status: 400 };
+  if (image.type !== 'image/jpeg' || thumb.type !== 'image/jpeg') return { error: 'Images must be JPEG.', status: 400 };
+  if (image.size > MAX_BYTES || thumb.size > MAX_BYTES) return { error: 'Image too large.', status: 413 };
   const video = form.get('video');
   const duration = num(form.get('duration'));
   if (video !== null) {
-    if (!(video instanceof File) || video.type !== 'video/mp4') return json({ error: 'Videos must be MP4.' }, 400);
-    if (video.size > MAX_VIDEO_BYTES) return json({ error: 'Video too large.' }, 413);
-    if (duration === null || duration <= 0 || duration > MAX_VIDEO_S) return json({ error: 'Videos can be up to 3 minutes.' }, 400);
+    if (!(video instanceof File) || video.type !== 'video/mp4') return { error: 'Videos must be MP4.', status: 400 };
+    if (video.size > MAX_VIDEO_BYTES) return { error: 'Video too large.', status: 413 };
+    if (duration === null || duration <= 0 || duration > MAX_VIDEO_S) return { error: 'Videos can be up to 3 minutes.', status: 400 };
   }
+  return { image, thumb, video, duration: video ? duration : null, width: num(form.get('width')), height: num(form.get('height')) };
+}
+
+async function putFiles(env, id, f) {
+  if (f.video) await env.PHOTOS.put(`photos/${id}.mp4`, f.video.stream(), { httpMetadata: { contentType: 'video/mp4' } });
+  await env.PHOTOS.put(`photos/${id}.jpg`, f.image.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
+  await env.PHOTOS.put(`photos/${id}_t.jpg`, f.thumb.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
+}
+
+const insertRow = (env, r) => env.DB.prepare(
+  'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+).bind(r.id, r.taken_ts, r.lat, r.lon, r.source, r.caption, r.width, r.height, r.duration, r.created_ts, r.created_by);
+const filesOf = (id) => [`photos/${id}.jpg`, `photos/${id}_t.jpg`, `photos/${id}.mp4`];
+
+export async function uploadPhoto(request, env, viewer) {
+  if (!env.PHOTOS) return json({ error: 'Photo storage (R2) is not set up yet.' }, 503);
+  const form = await request.formData();
+  const f = readFiles(form);
+  if (f.error) return json({ error: f.error }, f.status);
+  const lat = num(form.get('lat'));
+  const lon = num(form.get('lon'));
+  if (lat === null || lon === null || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: 'Missing location.' }, 400);
 
   const id = crypto.randomUUID();
   const source = ['exif', 'track', 'manual'].includes(form.get('source')) ? form.get('source') : 'manual';
   const caption = String(form.get('caption') || '').slice(0, 500);
-
-  if (video) await env.PHOTOS.put(`photos/${id}.mp4`, video.stream(), { httpMetadata: { contentType: 'video/mp4' } });
-  await env.PHOTOS.put(`photos/${id}.jpg`, image.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
-  await env.PHOTOS.put(`photos/${id}_t.jpg`, thumb.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
+  await putFiles(env, id, f);
   const row = {
     id, taken_ts: num(form.get('taken_ts')), lat, lon, source, caption,
-    width: num(form.get('width')), height: num(form.get('height')), duration: video ? duration : null, created_ts: Date.now(),
+    width: f.width, height: f.height, duration: f.duration, created_ts: Date.now(), created_by: viewer.email,
   };
-  await env.DB.prepare(
-    'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(row.id, row.taken_ts, row.lat, row.lon, row.source, row.caption, row.width, row.height, row.duration, row.created_ts, viewer.email).run();
+  await insertRow(env, row).run();
+  delete row.created_by;
   return json({ photo: row }, 201);
+}
+
+// A new photo or video for a pin: it keeps its place and caption, and takes the new file's time
+// when it has one. The pin gets a new id, since photos are cached for good under theirs.
+export async function replacePhoto(request, env, id) {
+  if (!env.PHOTOS) return json({ error: 'Photo storage (R2) is not set up yet.' }, 503);
+  if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: 'Bad id.' }, 400);
+  const old = await env.DB.prepare('SELECT * FROM photos WHERE id = ?').bind(id).first();
+  if (!old) return json({ error: 'Not found.' }, 404);
+  const form = await request.formData();
+  const f = readFiles(form);
+  if (f.error) return json({ error: f.error }, f.status);
+
+  const row = { ...old, id: crypto.randomUUID(), taken_ts: num(form.get('taken_ts')) ?? old.taken_ts, width: f.width, height: f.height, duration: f.duration };
+  await putFiles(env, row.id, f);
+  await env.DB.batch([insertRow(env, row), env.DB.prepare('DELETE FROM photos WHERE id = ?').bind(id)]);
+  await env.PHOTOS.delete(filesOf(id));
+  delete row.created_by;
+  return json({ photo: row, replaced: id }, 201);
 }
 
 export async function updatePhoto(request, env, id) {
@@ -96,6 +129,6 @@ export async function updatePhoto(request, env, id) {
 export async function deletePhoto(env, id) {
   if (!/^[0-9a-f-]{36}$/.test(id)) return json({ error: 'Bad id.' }, 400);
   await env.DB.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
-  if (env.PHOTOS) await env.PHOTOS.delete([`photos/${id}.jpg`, `photos/${id}_t.jpg`, `photos/${id}.mp4`]);
+  if (env.PHOTOS) await env.PHOTOS.delete(filesOf(id));
   return json({ deleted: id });
 }

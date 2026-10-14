@@ -51,14 +51,16 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   night and stop pins worked out in the browser from that route (a stay of 20 min or more
   within 150 m; one over 3 a.m. in Trola's time zone is a night). The track keeps the first and
   last reading of each time bucket, so where the car was switched off survives downsampling.
-  Trola's local time comes from its last position
+  The map key switches the route and each kind of pin on or off, and dashboard cards fold to
+  their headers; both are remembered per device. Trola's local time comes from its last position
   ([tz-lookup](https://github.com/photostructure/tz-lookup), in the Worker).
 - **Photo pins** – the admin uploads photos from the map page; the browser reads EXIF GPS
   (or matches the photo time to Trola's track, or lets you tap the map), shrinks the photo
   to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).
   On a computer, Add photo opens TrolaSpy's own picker: choose a folder (or drop photos or
   folders on the page) and its photos show large, by day, with checkmarks; days Trola drove
-  are marked (`/api/drove`). Phones use their own photo picker.
+  are marked (`/api/drove`). Phones use their own photo picker. In the viewer the admin can
+  replace a pin's photo or video (it keeps its place and caption, under a new id) or delete it.
 - **Video pins** – videos go through the same flow. The browser shrinks them first with
   [Mediabunny](https://mediabunny.dev) (served by the web Worker from `node_modules`, loaded only
   when a video is added): 720p at about 1.6 Mbit/s, sound kept, at most 3 minutes, metadata

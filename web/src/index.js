@@ -19,7 +19,7 @@ import { RUN_GAP_MS, victronDays } from '../../shared/victron-days.js';
 import tzlookup from '@photostructure/tz-lookup';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
-import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
+import { listPhotos, servePhoto, positionAt, uploadPhoto, replacePhoto, updatePhoto, deletePhoto } from './photos.js';
 
 const MAX_HOURS = 30 * 24; // solar charts
 const MAX_POINTS = 3000;
@@ -208,6 +208,8 @@ export default {
       const m = url.pathname.match(/^\/api\/photos\/([0-9a-f-]{36})$/);
       if (m && method === 'PATCH') return updatePhoto(request, env, m[1]);
       if (m && method === 'DELETE') return deletePhoto(env, m[1]);
+      const rm = url.pathname.match(/^\/api\/photos\/([0-9a-f-]{36})\/replace$/);
+      if (rm && method === 'POST') return replacePhoto(request, env, rm[1]);
       return json({ error: 'Not found' }, 404);
     }
     if (url.pathname === '/api/latest') return json(await latest(env));

@@ -91,6 +91,16 @@
   .help:hover, .help.on { background: var(--accent-soft); color: var(--accent-ink); }
   .help.corner { position: absolute; top: 12px; right: 12px; }
   .hd { display: flex; align-items: center; gap: 6px; }
+  /* Folding cards: a chevron at the end of the header; a folded card shows only its header. */
+  .chart-head > .end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .fold { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+    background: var(--off); color: var(--muted); display: flex; align-items: center; justify-content: center; }
+  .fold:hover { background: var(--accent-soft); color: var(--accent-ink); }
+  .fold svg { width: 14px; height: 14px; transition: transform .15s; }
+  .card.folded .fold svg { transform: rotate(-90deg); }
+  .card.foldable .chart-head h2 { cursor: pointer; }
+  .card.folded > :not(:first-child) { display: none !important; }
+  .card.folded > .chart-head { margin-bottom: 0; }
   .helptip { position: fixed; z-index: 4000; width: max-content; max-width: min(300px, calc(100vw - 24px)); padding: 10px 12px;
     background: var(--solid); color: var(--text); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
     font-size: 13px; line-height: 1.45; }
@@ -116,6 +126,7 @@
     padding: 4px 10px; border-radius: 8px; cursor: pointer; }
   .seg button.active { background: var(--solid); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
   .seg button svg { width: 15px; height: 15px; display: block; }
+  #range button { padding: 4px 8px; }
   .rangepick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; font-size: 13px; color: var(--muted); }
   .rangepick input { border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px; font: inherit; background: var(--solid); color: var(--text); }
   .rangepick button { border: 0; border-radius: 8px; padding: 6px 12px; font: inherit; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
@@ -143,6 +154,9 @@
   .mapkey .rows { display: none; padding: 0 11px 9px; gap: 6px; }
   .mapkey.open .rows { display: grid; }
   .mapkey .row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .mapkey label.row { cursor: pointer; }
+  .mapkey .row input { margin: 0 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .mapkey .row.off > :not(input) { opacity: .4; }
   .mapkey .ico { width: 24px; display: flex; justify-content: center; align-items: center; }
   .mapkey .ico .van, .mapkey .ico .cpin, .mapkey .ico .spin.night { width: 20px; height: 20px; border-width: 2px; box-shadow: none; }
   .mapkey .ico .van { box-shadow: 0 0 0 2px var(--accent); }
@@ -274,7 +288,7 @@
   .lightbox img { max-width: 100%; max-height: 78dvh; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
   .lightbox .meta { color: #e3f0f3; text-align: center; max-width: 640px; }
   .lightbox .meta small { display: block; color: #9db6bf; margin-top: 2px; }
-  .lightbox .row { display: flex; gap: 8px; }
+  .lightbox .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
   .btn { border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
     background: var(--off); color: var(--text); }
   .btn.primary { background: var(--accent); color: #fff; }
@@ -450,7 +464,8 @@
     <form class="capedit" id="lbcapform" hidden><input type="text" id="lbcapinput" placeholder="Caption" maxlength="500">
       <button class="btn primary">Save</button><button class="btn" type="button" id="lbcapcancel">Cancel</button></form>
     <small id="lbdate"></small></div>
-  <div class="row"><button class="btn" id="lbgo">Show on map</button><button class="btn" id="lbedit" hidden>Caption</button><button class="btn danger" id="lbdelete" hidden>Delete</button></div>
+  <div class="row"><button class="btn" id="lbgo">Show on map</button><button class="btn" id="lbedit" hidden>Caption</button><button class="btn" id="lbreplace" hidden>Replace</button><button class="btn danger" id="lbdelete" hidden>Delete</button></div>
+  <input type="file" id="replacefile" accept="image/*,video/*" hidden>
 </div>
 <div class="card uploader" id="uploader">
   <img id="upthumb" alt="">
@@ -501,7 +516,7 @@
 
   <section class="tiles" id="tiles"></section>
 
-  <section class="card">
+  <section class="card" id="statscard">
     <div class="chart-head">
       <div class="hd"><h2 id="rangeTitle">Last 24 hours</h2><button class="help" data-help="stats" aria-label="What is this?">?</button></div>
       <div class="seg" id="range">
@@ -548,7 +563,7 @@
     <div class="chart" id="dcdcdays"></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="chartcard">
     <div class="chart-head">
       <div class="seg" id="metric">
         <button data-m="soc" class="active">Battery</button>
@@ -1067,7 +1082,7 @@ setInterval(tickClock, 15000);
 // ---------- Nights and stops ----------
 // Worked out from the route shown: where Trola stayed within NEAR_M for STOP_MS or more. A stay
 // over 3 in the morning (Trola's time) is a night; a stay during a charge is left to the charger pin.
-const stayLayer = L.layerGroup().addTo(map);
+const nightLayer = L.layerGroup().addTo(map), stopLayer = L.layerGroup().addTo(map);
 const STOP_MS = 20 * 60000, NEAR_M = 150;
 const SICON = { night: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>', stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>' };
 const stayIcon = (k) => L.divIcon({ className: '', iconSize: k === 'night' ? [26, 26] : [20, 20], iconAnchor: k === 'night' ? [13, 13] : [10, 10],
@@ -1091,7 +1106,7 @@ function findStays(points) {
   return out;
 }
 function renderStays() {
-  stayLayer.clearLayers();
+  nightLayer.clearLayers(); stopLayer.clearLayers();
   let hourOf;
   try { hourOf = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: tripTz || undefined }); }
   catch { hourOf = new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23' }); }
@@ -1106,40 +1121,10 @@ function renderStays() {
     const html = `<div class="spop"><h3>${k > 1 ? `${k} nights` : k ? 'Overnight' : 'Stop'}</h3><div class="sub">${when} · ${dur(s.end - s.start)}</div>
       <a href="https://www.google.com/maps?q=${s.lat},${s.lon}" target="_blank" rel="noopener">Open in Maps ↗</a></div>`;
     L.marker([s.lat, s.lon], { icon: stayIcon(k ? 'night' : 'stop'), zIndexOffset: k ? -40 : -70 })
-      .bindPopup(html, { maxWidth: 260, autoPanPaddingTopLeft: innerWidth > 760 ? [420, 20] : [20, 96] }).addTo(stayLayer);
+      .bindPopup(html, { maxWidth: 260, autoPanPaddingTopLeft: innerWidth > 760 ? [420, 20] : [20, 96] }).addTo(k ? nightLayer : stopLayer);
   }
 }
 
-// ---------- Map key ----------
-// Open by default on wide screens; on phones a tap opens it. The choice is remembered.
-const MapKey = L.Control.extend({
-  onAdd() {
-    const el = L.DomUtil.create('div', 'mapkey');
-    el.innerHTML = `<button type="button" aria-expanded="false">Map key <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg></button>
-      <div class="rows">
-        <div class="row"><span class="ico"><span class="van"><img src="/logo" alt=""></span></span>Trola, last known spot</div>
-        <div class="row"><span class="ico"><span class="route"></span></span>Route of the period shown</div>
-        <div class="row"><span class="ico"><span class="spin night">${SICON.night}</span></span>Overnight stay</div>
-        <div class="row"><span class="ico"><span class="spin stop">${SICON.stop}</span></span>Stop, 20 min or more</div>
-        <div class="row"><span class="ico"><span class="cpin">${ICON.bolt}</span></span>Charger</div>
-        <div class="row"><span class="ico"><span class="photo"></span></span>Photo or video</div>
-      </div>`;
-    let open = innerWidth > 760;
-    try { const v = localStorage.getItem('mapkey'); if (v !== null) open = v === '1'; } catch {}
-    const set = (o) => { el.classList.toggle('open', o); el.firstElementChild.setAttribute('aria-expanded', String(o)); };
-    set(open);
-    el.firstElementChild.addEventListener('click', () => {
-      open = !el.classList.contains('open'); set(open);
-      try { localStorage.setItem('mapkey', open ? '1' : '0'); } catch {}
-    });
-    L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el);
-    return el;
-  },
-});
-// Phones: bottom left of the map (the header covers the top); wide screens: top right, clear of the panel.
-const keyPos = () => (innerWidth > 760 ? 'topright' : 'bottomleft');
-const mapKey = new MapKey({ position: keyPos() }).addTo(map);
-addEventListener('resize', () => { if (mapKey.getPosition() !== keyPos()) mapKey.setPosition(keyPos()); });
 addEventListener('resize', () => renderChart(trackPoints));
 
 // ---------- Photo pins ----------
@@ -1171,6 +1156,8 @@ function openLightbox(ph) {
   $('lbdate').textContent = ph.taken_ts ? fmtDate(ph.taken_ts) : `Added ${fmtDate(ph.created_ts)}`;
   $('lbdelete').hidden = !me.admin;
   $('lbedit').hidden = !me.admin;
+  $('lbreplace').hidden = !me.admin;
+  $('lbreplace').textContent = `Replace ${ph.duration ? 'video' : 'photo'}`;
   $('lbedit').textContent = ph.caption ? 'Edit caption' : 'Add caption';
   editCaption(false);
   $('lightbox').classList.add('open');
@@ -1222,6 +1209,50 @@ $('lbdelete').addEventListener('click', async () => {
   closeLightbox();
   loadPhotos();
 });
+// Replace: a new photo or video for the pin in the viewer. It keeps its place and caption, and
+// takes the new file's own time when it has one.
+$('lbreplace').addEventListener('click', () => $('replacefile').click());
+$('replacefile').addEventListener('change', async (e) => {
+  const file = e.target.files[0], ph = lbPhoto; e.target.value = '';
+  if (!file || !ph) return;
+  const btn = $('lbreplace'), say = (t) => { if (lbPhoto === ph) btn.textContent = t; };
+  btn.disabled = $('lbdelete').disabled = $('lbedit').disabled = true;
+  try {
+    const fd = new FormData();
+    let big, small, taken;
+    if (isVideo(file)) {
+      say('Reading video…');
+      const v = await readVideo(file);
+      const out = await shrinkVideo(file, (k) => say(`Shrinking… ${Math.round(k * 100)}%`), () => {});
+      fd.append('video', new File([out.blob], 'video.mp4', { type: 'video/mp4' }));
+      fd.append('duration', out.duration);
+      ({ poster: big, thumb: small, taken } = v);
+    } else {
+      say('Reading photo…');
+      [taken, big, small] = await Promise.all([photoTime(file), shrink(file, 2000, 0.82), shrink(file, 400, 0.75)]);
+    }
+    say('Uploading…');
+    fd.append('image', new File([big.blob], 'photo.jpg', { type: 'image/jpeg' }));
+    fd.append('thumb', new File([small.blob], 'thumb.jpg', { type: 'image/jpeg' }));
+    fd.append('width', big.width); fd.append('height', big.height);
+    if (taken) fd.append('taken_ts', taken);
+    const r = await fetch(`/api/photos/${ph.id}/replace`, { method: 'POST', body: fd });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    const { photo } = await r.json();
+    await loadPhotos();
+    if (lbPhoto === ph) openLightbox(photos.find((x) => x.id === photo.id) || photo);
+  } catch (err) {
+    alert(`Could not replace it: ${err.message || 'this file can’t be read here'}`);
+  }
+  btn.disabled = $('lbdelete').disabled = $('lbedit').disabled = false;
+  if (lbPhoto) btn.textContent = `Replace ${lbPhoto.duration ? 'video' : 'photo'}`;
+});
+async function photoTime(file) {
+  try {
+    const t = await window.exifr.parse(file), d = t && (t.DateTimeOriginal || t.CreateDate);
+    return d instanceof Date && !isNaN(d) ? d.getTime() : null;
+  } catch { return null; }
+}
 
 // Shrink in the browser so uploads are quick and storage lasts: ~2000px photo, 400px thumbnail.
 // Decoded image (ImageBitmap, or an <img> where only that can read the format, like HEIC in Safari).
@@ -1809,6 +1840,84 @@ $('chargelist').addEventListener('click', (e) => {
   map.once('moveend', () => p.marker.openPopup());
 });
 setInterval(() => { if (!hidden()) loadCharges(); }, CHARGES_EVERY); // also with the track (see refresh)
+
+// ---------- Map key ----------
+// Open by default on wide screens; on phones a tap opens it. Each kind of pin (and the route)
+// can be switched off there. Both choices are remembered on this device.
+const KEY_ROWS = [
+  [null, '<span class="van"><img src="/logo" alt=""></span>', 'Trola, last known spot'],
+  ['route', '<span class="route"></span>', 'Route of the period shown', trackLine],
+  ['night', `<span class="spin night">${SICON.night}</span>`, 'Overnight stay', nightLayer],
+  ['stop', `<span class="spin stop">${SICON.stop}</span>`, 'Stop, 20 min or more', stopLayer],
+  ['charger', `<span class="cpin">${ICON.bolt}</span>`, 'Charger', chargeLayer],
+  ['photo', '<span class="photo"></span>', 'Photo or video', photoLayer],
+];
+const MapKey = L.Control.extend({
+  onAdd() {
+    const el = L.DomUtil.create('div', 'mapkey');
+    let off = [];
+    try { off = JSON.parse(localStorage.getItem('mapoff') || '[]'); } catch {}
+    el.innerHTML = `<button type="button" aria-expanded="false">Map key <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg></button>
+      <div class="rows">${KEY_ROWS.map(([k, ico, text]) => (k
+        ? `<label class="row"><span class="ico">${ico}</span><span>${text}</span><input type="checkbox" data-k="${k}" aria-label="Show ${text.toLowerCase()}"></label>`
+        : `<div class="row"><span class="ico">${ico}</span><span>${text}</span></div>`)).join('')}</div>`;
+    const show = (k, on) => {
+      const [, , , layer] = KEY_ROWS.find((r) => r[0] === k), box = el.querySelector(`input[data-k="${k}"]`);
+      box.checked = on; box.closest('.row').classList.toggle('off', !on);
+      if (on) layer.addTo(map); else layer.remove();
+    };
+    for (const [k] of KEY_ROWS) if (k) show(k, !off.includes(k));
+    el.querySelector('.rows').addEventListener('change', (e) => {
+      const k = e.target.dataset.k; if (!k) return;
+      show(k, e.target.checked);
+      off = KEY_ROWS.map((r) => r[0]).filter((x) => x && !el.querySelector(`input[data-k="${x}"]`).checked);
+      try { localStorage.setItem('mapoff', JSON.stringify(off)); } catch {}
+    });
+    let open = innerWidth > 760;
+    try { const v = localStorage.getItem('mapkey'); if (v !== null) open = v === '1'; } catch {}
+    const set = (o) => { el.classList.toggle('open', o); el.firstElementChild.setAttribute('aria-expanded', String(o)); };
+    set(open);
+    el.firstElementChild.addEventListener('click', () => {
+      open = !el.classList.contains('open'); set(open);
+      try { localStorage.setItem('mapkey', open ? '1' : '0'); } catch {}
+    });
+    L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el);
+    return el;
+  },
+});
+// Phones: bottom left of the map (the header covers the top); wide screens: top right, clear of the panel.
+const keyPos = () => (innerWidth > 760 ? 'topright' : 'bottomleft');
+const mapKey = new MapKey({ position: keyPos() }).addTo(map);
+addEventListener('resize', () => { if (mapKey.getPosition() !== keyPos()) mapKey.setPosition(keyPos()); });
+
+// ---------- Folding cards ----------
+// The chevron at the end of a card's header (or its title) folds the card to that header. Folded
+// cards are remembered on this device; charts drawn while folded are redrawn when it opens.
+const FOLDABLE = ['statscard', 'chargecard', 'solarcard', 'dcdccard', 'chartcard', 'monthcard', 'aboutcard', 'admincard'];
+let folded = [];
+try { folded = JSON.parse(localStorage.getItem('folded') || '[]'); } catch {}
+for (const id of FOLDABLE) {
+  const card = $(id), head = card.querySelector('.chart-head'), end = document.createElement('div');
+  const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'fold',
+    innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>' });
+  end.className = 'end';
+  if (head.children.length > 1) end.append(head.lastElementChild); // what sits on the right stays there
+  end.append(btn); head.append(end);
+  card.classList.add('foldable');
+  const set = (on) => {
+    card.classList.toggle('folded', on);
+    btn.setAttribute('aria-expanded', String(!on)); btn.setAttribute('aria-label', on ? 'Open this card' : 'Fold this card');
+  };
+  set(folded.includes(id));
+  const toggle = () => {
+    const on = !card.classList.contains('folded'); set(on);
+    folded = on ? [...folded, id] : folded.filter((x) => x !== id);
+    try { localStorage.setItem('folded', JSON.stringify(folded)); } catch {}
+    if (!on) dispatchEvent(new Event('resize'));
+  };
+  btn.addEventListener('click', toggle);
+  const title = head.querySelector('h2'); if (title) title.addEventListener('click', toggle);
+}
 
 // ---------- Small charts (monthly bars, battery health line) ----------
 const DAY_MS = 864e5;
