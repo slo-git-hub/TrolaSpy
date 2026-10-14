@@ -58,6 +58,47 @@ const mcpInfo = (env, url, m) => (m && m.token
   : { on: false });
 const newSecret = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))).replace(/\+/g, '-').replace(/\//g, '_');
 
+// Cloudflare's free plan per UTC day: D1 rows read and written, Worker requests (whole account),
+// from Cloudflare's GraphQL analytics. Needs an API token that may read account analytics, which
+// the admin saves in the Data tab (setting "cf_token"); it is never sent back to the page.
+const cfApi = (env) => env.CF_API_URL || 'https://api.cloudflare.com/client/v4'; // CF_API_URL: local testing
+const CF_FREE = { rows_read: 5e6, rows_written: 1e5, requests: 1e5 };
+async function cfAccount(env, token) {
+  if (/^[0-9a-f]{32}$/.test(env.CF_ACCOUNT_ID || '')) return env.CF_ACCOUNT_ID;
+  const r = await fetch(`${cfApi(env)}/accounts?per_page=5`, { headers: { authorization: `Bearer ${token}` } });
+  const j = await r.json().catch(() => ({}));
+  return j.result && j.result.length ? j.result[0].id : null;
+}
+async function cfUsage(env, token, now = Date.now()) {
+  const account = await cfAccount(env, token).catch(() => null);
+  if (!account) return { error: "Cloudflare didn't accept the token, or didn't say which account it is for." };
+  const day = (t) => new Date(t).toISOString().slice(0, 10);
+  const today = day(now), yesterday = day(now - DAY_MS);
+  const since = Math.floor(now / 3600e3) * 3600e3 - 23 * 3600e3; // the last 24 hours, this one included
+  const query = `query ($a: string!, $from: Date!, $to: Date!, $since: Time!) { viewer { accounts(filter: { accountTag: $a }) {
+    days: d1AnalyticsAdaptiveGroups(limit: 20, filter: { date_geq: $from, date_leq: $to }) { sum { rowsRead rowsWritten } dimensions { date } }
+    hours: d1AnalyticsAdaptiveGroups(limit: 50, filter: { datetimeHour_geq: $since }) { sum { rowsRead rowsWritten } dimensions { datetimeHour } }
+    workers: workersInvocationsAdaptive(limit: 200, filter: { date_geq: $from, date_leq: $to }) { sum { requests } dimensions { date } } } } }`;
+  let j = null, status = 0;
+  try {
+    const r = await fetch(`${cfApi(env)}/graphql`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ query, variables: { a: account, from: yesterday, to: today, since: new Date(since).toISOString() } }) });
+    status = r.status; j = await r.json();
+  } catch { /* below */ }
+  const a = j && j.data && j.data.viewer && j.data.viewer.accounts[0];
+  if (!a) return { error: `Cloudflare said: ${(j && j.errors && j.errors[0] && j.errors[0].message) || status || 'no answer'}` };
+  const sum = (list, d, k) => (list || []).filter((x) => x.dimensions.date === d).reduce((t, x) => t + (x.sum[k] || 0), 0);
+  const totals = (d) => ({ date: d, rows_read: sum(a.days, d, 'rowsRead'), rows_written: sum(a.days, d, 'rowsWritten'), requests: sum(a.workers, d, 'requests') });
+  const byHour = new Map((a.hours || []).map((x) => [Date.parse(x.dimensions.datetimeHour), x.sum]));
+  const hours = Array.from({ length: 24 }, (_, i) => {
+    const ts = since + i * 3600e3, h = byHour.get(ts) || {};
+    return { ts, rows_read: h.rowsRead || 0, rows_written: h.rowsWritten || 0 };
+  });
+  return { today: totals(today), yesterday: totals(yesterday), hours, free: CF_FREE,
+    last_24h: { rows_read: hours.reduce((t, h) => t + h.rows_read, 0), rows_written: hours.reduce((t, h) => t + h.rows_written, 0) },
+    resets_ts: Date.parse(`${today}T00:00:00Z`) + DAY_MS, checked_ts: now };
+}
+
 // Total size of the photo files in R2 (photo + thumbnail each). Each list call is a
 // subrequest, and a free-plan Worker may make 50, so very large buckets are only counted in part.
 async function photoBytes(bucket) {
@@ -173,6 +214,21 @@ export async function handleAdmin(request, env, url) {
     return json({ days: results });
   }
 
+  if (path === 'usage' && method === 'GET') {
+    const { cf_token: token } = await getSettings(db, ['cf_token']);
+    if (!token) return json({ token: false });
+    const u = await cfUsage(env, token);
+    return json({ token: true, ...u });
+  }
+  if (path === 'usage' && method === 'PUT') {
+    const token = String((await request.json()).token || '').trim();
+    if (!token) { await db.prepare("DELETE FROM settings WHERE key = 'cf_token'").run(); return json({ token: false }); }
+    if (!/^[A-Za-z0-9_-]{20,200}$/.test(token)) return json({ error: "That doesn't look like a Cloudflare API token." }, 400);
+    const u = await cfUsage(env, token);
+    if (u.error) return json({ error: u.error }, 400);
+    await putSetting(db, 'cf_token', token);
+    return json({ token: true, ...u });
+  }
   if (path === 'data' && method === 'GET') {
     const res = await db.prepare('SELECT COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last FROM readings').all();
     const [recent, photos, files] = await Promise.all([

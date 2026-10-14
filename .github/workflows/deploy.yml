@@ -59,6 +59,7 @@ jobs:
           fi
           echo "Using D1 database $id"
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$id/" ingest/wrangler.toml web/wrangler.toml public/wrangler.toml mcp/wrangler.toml
+          sed -i "s/REPLACE_WITH_ACCOUNT_ID/$CLOUDFLARE_ACCOUNT_ID/" web/wrangler.toml
           npx wrangler d1 execute trolaspy --remote --file schema.sql -c ingest/wrangler.toml
           # Columns added after a table was first made (CREATE TABLE IF NOT EXISTS skips them).
           add_column() {

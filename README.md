@@ -50,7 +50,10 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
   as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the
   admin card; charged to X %, charging finished, battery low),
-  battery health over time (daily SOH / Hx / AHr), a report for any days (a printable page to save as PDF, with
+  battery health over time (daily SOH / Hx / AHr), Cloudflare's daily free-plan limits (database rows read and
+  written and Worker requests today, yesterday and per hour, from Cloudflare's analytics with an API token
+  that may only read Account Analytics, saved in the Data tab; `.github/workflows/usage.yml` shows the same and the
+  heaviest queries on demand), a report for any days (a printable page to save as PDF, with
   totals, charts and tables, or an Excel file made by `web/src/xlsx.mjs`), and backup (CSV download), restore and
   delete of readings. Day summaries live in the `daily` table (`shared/stats.js`); alert
   rules run on each upload in the ingest Worker (`shared/alerts.js`).

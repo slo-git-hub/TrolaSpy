@@ -234,6 +234,9 @@
   .meter-head b small { font-size: 12px; color: var(--muted); font-weight: 500; }
   .meter .bar { height: 8px; border-radius: 4px; background: var(--off); margin: 5px 0 4px; overflow: hidden; }
   .meter .bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); min-width: 4px; }
+  .meter.warn .bar i { background: #d98a00; }
+  .meter.over .bar i { background: #c62f36; }
+  #cf-setup[hidden], #cf-btns[hidden], #cf-chart[hidden], #cf-charthead[hidden], #cf-usage[hidden] { display: none; }
   .adm hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
   .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
 
@@ -680,6 +683,27 @@
     </div>
     <div class="adm" id="adm-data" hidden>
       <div class="note" id="dt-sum">Loading…</div>
+      <h3>Daily limits</h3>
+      <div class="note">Each day, midnight to midnight UTC, Cloudflare's free plan allows 5 million database rows read, 100,000 rows
+        written and 100,000 Worker requests. Past a limit Cloudflare refuses database work until the next day: the map stops loading
+        and LeafSpy's uploads are lost.</div>
+      <div class="meters" id="cf-usage"></div>
+      <div class="note" id="cf-charthead" hidden>Rows read per hour, last 24 hours</div>
+      <div class="chart" id="cf-chart" hidden></div>
+      <div class="adm" id="cf-setup" hidden>
+        <div class="note">To see them here, give TrolaSpy a Cloudflare API token that can only read analytics:</div>
+        <ol class="steps">
+          <li>Open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">API Tokens</a> in Cloudflare
+            (My Profile) and click Create Token.</li>
+          <li>Next to Custom token, click Get started, and name it TrolaSpy usage.</li>
+          <li>Under Permissions pick Account, Account Analytics, Read. Then Continue to summary, and Create Token.</li>
+          <li>Copy the token and paste it here.</li>
+        </ol>
+        <label>API token<br><input class="key" type="password" id="cf-token" autocomplete="off" spellcheck="false"></label>
+        <div class="btns"><button class="btn primary" id="cf-save">Save</button></div>
+      </div>
+      <div class="btns" id="cf-btns" hidden><button class="btn" id="cf-refresh">Refresh</button><button class="btn" id="cf-forget">Remove token</button></div>
+      <span class="msg" id="cf-msg"></span>
       <h3>Storage</h3>
       <div class="note">Cloudflare's free plan allows 500 MB for the database and 10 GB for photos.</div>
       <div class="meters" id="dt-storage"></div>
@@ -1957,7 +1981,7 @@ const niceMax = (v) => { if (v <= 0) return 10; const p = 10 ** Math.floor(Math.
 const fmtDay = (key) => new Date(`${key}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
 // Bars anchored to the baseline with 4px rounded tops and 2px gaps; tooltip per bar.
-function barChart(el, slots, { value, tip }) {
+function barChart(el, slots, { value, tip, fmt = Math.round }) {
   const W = el.clientWidth, H = el.clientHeight, L0 = 34, B = 16, T = 6;
   const max = niceMax(Math.max(0, ...slots.map(value)));
   const y = (v) => T + (1 - v / max) * (H - T - B);
@@ -1969,7 +1993,7 @@ function barChart(el, slots, { value, tip }) {
   }).join('');
   const labels = [0, Math.floor(slots.length / 2), slots.length - 1];
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
-    ${[0, max / 2, max].map((v) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="0" y="${y(v) + 3}">${Math.round(v)}</text>`).join('')}
+    ${[0, max / 2, max].map((v) => `<line class="grid" x1="${L0}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="0" y="${y(v) + 3}">${fmt(v)}</text>`).join('')}
     ${bars}
     ${labels.map((i) => `<text class="axis" x="${L0 + (i + 0.5) * sw}" y="${H - 2}" text-anchor="middle">${slots[i].label}</text>`).join('')}
     ${slots.map((s, i) => `<rect class="hit" data-i="${i}" x="${L0 + i * sw}" y="0" width="${sw}" height="${H - B}" fill="transparent"/>`).join('')}
@@ -2375,7 +2399,53 @@ function showStorage(d) {
   const photoNote = `${d.photos.toLocaleString()} photo${d.photos === 1 ? '' : 's'}, each stored with a thumbnail${d.photo_bytes_partial ? ' (counted in part)' : ''}.`;
   $('dt-storage').innerHTML = meter('Database', d.db_bytes, DB_FREE, dbNote) + meter('Photos', d.photo_bytes, PHOTOS_FREE, photoNote);
 }
+// Cloudflare's free plan per UTC day, from Cloudflare's analytics (admin.js, /api/admin/usage).
+const count = (v) => (v >= 1e6 ? `${+(v / 1e6).toFixed(v >= 1e7 ? 1 : 2)} M` : v >= 1e4 ? `${Math.round(v / 1e3)}k` : Math.round(v).toLocaleString());
+function countMeter(label, used, free, note) {
+  const pct = Math.min(100, (used / free) * 100), cls = used >= free ? ' over' : pct >= 80 ? ' warn' : '';
+  return `<div class="meter${cls}"><div class="meter-head"><span>${label}</span><b>${count(used)} <small>of ${count(free)}${used >= free ? ' · over the limit' : ''}</small></b></div>
+    <div class="bar" title="${pct < 1 ? pct.toFixed(2) : pct.toFixed(0)}% used"><i style="width:${pct}%"></i></div><div class="note">${note}</div></div>`;
+}
+let usage = null;
+function renderUsageChart() {
+  if (!usage || !usage.hours || $('cf-chart').hidden) return;
+  const hh = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  barChart($('cf-chart'), usage.hours.map((h) => ({ ...h, label: hh(h.ts) })), {
+    value: (h) => h.rows_read, fmt: count,
+    tip: (h) => `${hh(h.ts)}–${hh(h.ts + 3600e3)} · ${h.rows_read.toLocaleString()} rows read · ${h.rows_written.toLocaleString()} written`,
+  });
+}
+async function loadUsage(req) {
+  say('cf-msg', 'Asking Cloudflare…');
+  try { usage = await (req || api('usage')); } catch (e) { say('cf-msg', e.message); return; }
+  const u = usage;
+  $('cf-setup').hidden = !!u.token; $('cf-btns').hidden = !u.token;
+  const ok = u.token && !u.error;
+  $('cf-chart').hidden = $('cf-charthead').hidden = $('cf-usage').hidden = !ok;
+  if (!ok) { $('cf-usage').innerHTML = ''; say('cf-msg', u.error || ''); return; }
+  const over = (v, k) => (v >= u.free[k] ? ' (over the limit)' : '');
+  const resets = new Date(u.resets_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  $('cf-usage').innerHTML = countMeter('Database rows read today', u.today.rows_read, u.free.rows_read,
+    `Last 24 hours ${count(u.last_24h.rows_read)}. Yesterday ${count(u.yesterday.rows_read)}${over(u.yesterday.rows_read, 'rows_read')}. The count starts again at ${resets}.`)
+    + countMeter('Database rows written today', u.today.rows_written, u.free.rows_written, `Yesterday ${count(u.yesterday.rows_written)}${over(u.yesterday.rows_written, 'rows_written')}.`)
+    + countMeter('Worker requests today', u.today.requests, u.free.requests, `Yesterday ${count(u.yesterday.requests)}${over(u.yesterday.requests, 'requests')}. All Workers on the account together.`);
+  renderUsageChart();
+  say('cf-msg', `Checked at ${new Date(u.checked_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Cloudflare's numbers can be a few minutes behind.`);
+}
+$('cf-refresh').addEventListener('click', () => loadUsage());
+$('cf-save').addEventListener('click', () => {
+  const token = $('cf-token').value.trim();
+  if (!token) { say('cf-msg', 'Paste the token first.'); return; }
+  loadUsage(api('usage', { method: 'PUT', body: JSON.stringify({ token }) }).then((u) => { $('cf-token').value = ''; return u; }));
+});
+$('cf-forget').addEventListener('click', () => {
+  if (confirm('Remove the Cloudflare token? The daily limits stop showing here until you add one again.')) {
+    loadUsage(api('usage', { method: 'PUT', body: JSON.stringify({ token: '' }) }));
+  }
+});
+addEventListener('resize', renderUsageChart);
 async function loadDataInfo() {
+  loadUsage();
   try {
     const d = await api('data');
     say('dt-sum', d.n ? `${d.n.toLocaleString()} readings stored, from ${fmtDate(d.first)} to ${fmtDate(d.last)}.` : 'No readings stored yet.');
