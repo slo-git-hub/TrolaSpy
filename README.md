@@ -22,17 +22,22 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   and optionally the photo pins, optionally some hours late. Blank until switched on in the
   admin card's Public tab. Must stay outside Cloudflare Access.
 - **`mcp/`** – the ChatGPT connector (Worker `trolaspy-mcp`, no login): a small
-  [MCP](https://modelcontextprotocol.io) server with four read-only tools, so ChatGPT, in chat
-  or Live voice, can answer "how many km did I drive yesterday?" or "how much energy did Trola
-  use on Sunday?". `get_trola_status` (battery, range, charging, leisure battery, local time),
-  `get_trola_stats` (totals for any days), `get_trola_days` (day by day) and `get_trola_charges`.
-  Days are calendar days where Trola is (`shared/latest.js` finds the time zone), and words
-  like "yesterday" or "Sunday" work. It never gives out positions, the route or photos. Its
-  address has a secret path made in the admin card's ChatGPT tab (New link replaces it, Turn
-  off removes it); any other path answers 404. Stateless Streamable HTTP, answering both the
-  2026-07-28 protocol and the older 2025 `initialize` handshake (`mcp/src/protocol.js`).
-  Must stay outside Cloudflare Access. Add it in ChatGPT on the web: Settings → Apps →
-  Advanced settings → Developer mode, then Create app with the link and No authentication.
+  [MCP](https://modelcontextprotocol.io) server with five read-only tools, so ChatGPT, in chat
+  or Live voice, can answer "how many km did I drive yesterday?", "how much energy did Trola
+  use on Sunday?" or "where did we sleep last night?". `get_trola_status` (where it is, battery,
+  range, charging, leisure battery, local time), `get_trola_stats` (totals for any days),
+  `get_trola_days` (day by day), `get_trola_charges` (with where) and `get_trola_stops` (nights
+  and stops of 20 min or more, by the map's rules in `shared/stays.js`). Days are calendar days
+  where Trola is (`shared/latest.js` finds the time zone), and words like "yesterday" or
+  "Sunday" work. Spots are named from OpenStreetMap's Nominatim (`shared/places.js`): each spot,
+  rounded to ~100 m, is looked up once (at most 3 per answer, a second apart, more in the
+  background) and kept in the `places` table. It gives place names and coordinates, but not the
+  route or photos. Its address has a secret path made in the admin card's ChatGPT tab (New link
+  replaces it, Turn off removes it); any other path answers 404. Stateless Streamable HTTP,
+  answering both the 2026-07-28 protocol and the older 2025 `initialize` handshake
+  (`mcp/src/protocol.js`). Must stay outside Cloudflare Access. Add it in ChatGPT on the web:
+  Settings → Apps → Advanced settings → Developer mode, then Create app with the link and No
+  authentication.
 - **`bridge/`** – TrolaSpy Bridge, a small Android app for the same tablet. It listens for the
   Victron SmartSolar and Orion Smart chargers' Bluetooth "Instant readout" broadcasts for 30 s
   every 5 minutes (no connection, so VictronConnect keeps working) and POSTs the newest one from
@@ -41,7 +46,7 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   them. Readings go to the `victron` table (a row when something changes, else every 15 min)
   and show in the Solar and DC-DC charger cards. Built by `.github/workflows/bridge.yml` and published as the
   latest GitHub release (`trolaspy-bridge.apk`); its signing key is kept in R2 (`private/`).
-- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings, victron, victron_days).
+- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings, victron, victron_days, places).
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
   as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the
   admin card; charged to X %, charging finished, battery low),

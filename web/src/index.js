@@ -16,6 +16,7 @@ import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { victronDays } from '../../shared/victron-days.js';
 import { latestReading, victronNow } from '../../shared/latest.js';
+import { track as trackPoints } from '../../shared/track.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, replacePhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -49,31 +50,11 @@ async function latest(env) {
   return { reading, lastPosition, tz, co2_g_per_km: CO2_SAVED_G_PER_KM };
 }
 
-// Downsampled to two points per bucket (its first and last reading). Up to 2 days, grouping reads
-// every reading once; longer ranges look up each bucket's first and last reading by time instead,
-// which reads about two rows per bucket rather than every reading (D1's free plan counts rows read).
+// The route, downsampled (see shared/track.js), with what the chart needs.
 const POINT_COLS = (r) => `${r}.ts, ${r}.lat, ${r}.lon, NULLIF(${r}.soc, 0) AS soc, ${r}.speed, ${r}.chrg_pwr, ${r}.pwr_sw, ${r}.bat_temp, ${r}.amb_temp,
   CASE WHEN ${r}.chrg_mode > 0 AND COALESCE(${r}.bat_volts * ${r}.bat_amps, 0) = 0 THEN NULL
        ELSE ROUND(${r}.bat_volts * ${r}.bat_amps / 1000.0, 2) END AS kw`; // none for charging readings without the current
-async function track(env, since, until) {
-  if (until <= since) return { since, until, bucketMs: 0, points: [] };
-  // The last reading before the car was switched off and the first after it keep where it was
-  // parked, which the map's night and stop pins need.
-  const bucketMs = Math.max(10_000, Math.ceil((until - since) / (MAX_POINTS / 2)));
-  const sql = until - since <= 48 * 3600e3
-    ? `WITH g AS (SELECT MIN(ts) AS a, MAX(ts) AS z FROM readings WHERE ts >= ?1 AND ts <= ?3 GROUP BY ts / CAST(?2 AS INTEGER)),
-            k(ts) AS (SELECT a FROM g UNION SELECT z FROM g)
-       SELECT ${POINT_COLS('r')} FROM k JOIN readings r ON r.ts = k.ts ORDER BY r.ts`
-    : `WITH RECURSIVE b(t) AS (SELECT ?1 UNION ALL SELECT t + ?2 FROM b WHERE t + ?2 < ?3),
-            k(ts) AS (SELECT (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 AND ts <= ?3 ORDER BY ts LIMIT 1) FROM b
-                      UNION SELECT (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 AND ts <= ?3 ORDER BY ts DESC LIMIT 1) FROM b)
-       SELECT ${POINT_COLS('r')} FROM k JOIN readings r ON r.ts = k.ts ORDER BY r.ts`;
-  // The readings just outside the range, so a stay that began before it or ended after it is seen whole.
-  const edge = (op, dir, ts) => env.DB.prepare(`SELECT ts, lat, lon FROM readings WHERE ts ${op} ? ORDER BY ts ${dir} LIMIT 1`).bind(ts).first();
-  const [{ results }, before, after] = await Promise.all([
-    env.DB.prepare(sql).bind(since, bucketMs, until).all(), edge('<', 'DESC', since), edge('>', 'ASC', until)]);
-  return { since, until, bucketMs, points: results, before, after };
-}
+const track = (env, since, until) => trackPoints(env.DB, since, until, POINT_COLS('r'), MAX_POINTS);
 
 // Victron solar charger and DC-DC charger: newest values, a time series for each chart, and the
 // day totals of the last 30 days (see victron-days.js).

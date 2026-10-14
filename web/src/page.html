@@ -639,8 +639,9 @@
     </div>
     <div class="adm" id="adm-chatgpt" hidden>
       <div class="note">Ask ChatGPT about Trola, by voice too: "How many kilometres did I drive yesterday?", "How much energy did Trola use
-        on Sunday?", "When did I last charge?", "What's the battery at?" ChatGPT gets the answers from TrolaSpy through a private link.
-        It can only read totals, charging and the battery, not the map, the route or photos.</div>
+        on Sunday?", "Where did I charge yesterday?", "Where did we sleep last night?", "What's the battery at?" ChatGPT gets the answers
+        from TrolaSpy through a private link. It reads totals, charging, the battery, and where Trola is, charged, stopped and slept
+        (as place names), but not the route or photos.</div>
       <div class="btns" id="mc-off"><button class="btn primary" id="mc-make">Make a ChatGPT link</button></div>
       <div class="adm" id="mc-on" hidden>
         <label>Link for ChatGPT<br><input class="key" type="text" id="mc-url" readonly></label>
@@ -651,7 +652,7 @@
         <ol class="steps">
           <li>On a computer, open chatgpt.com. In Settings, open Apps, then Advanced settings, and turn on Developer mode.</li>
           <li>Click Create app. Name it TrolaSpy, paste the link above as the MCP server URL, and choose No authentication.</li>
-          <li>Accept the warning and create it. ChatGPT shows TrolaSpy's four tools, which only read.</li>
+          <li>Accept the warning and create it. ChatGPT shows TrolaSpy's tools, which only read.</li>
           <li>In a chat, pick TrolaSpy from the + menu, or start voice and ask about Trola.</li>
         </ol>
         <div class="note">Anyone with the link can ask these questions, so keep it to yourself. New link replaces it (paste the new one
@@ -1108,6 +1109,7 @@ setInterval(tickClock, 15000);
 // ---------- Nights and stops ----------
 // Worked out from the route shown: where Trola stayed within NEAR_M for STOP_MS or more. A stay
 // over 3 in the morning (Trola's time) is a night; a stay during a charge is left to the charger pin.
+// The ChatGPT connector uses the same rules (shared/stays.js).
 const nightLayer = L.layerGroup().addTo(map), stopLayer = L.layerGroup().addTo(map);
 const STOP_MS = 20 * 60000, NEAR_M = 150;
 const SICON = { night: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>', stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>' };

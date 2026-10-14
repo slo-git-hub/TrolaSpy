@@ -28,6 +28,6 @@ export default {
     if (request.method === 'POST' && now - (mcp.used_ts || 0) > USED_EVERY_MS) {
       ctx.waitUntil(putSetting(env.DB, 'mcp', { ...mcp, used_ts: now }).catch(() => {}));
     }
-    return handleMcp(request, trolaServer(env.DB));
+    return handleMcp(request, trolaServer(env.DB, { later: (p) => ctx.waitUntil(p), nominatim: env.NOMINATIM_URL || null }));
   },
 };

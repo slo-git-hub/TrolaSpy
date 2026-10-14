@@ -104,3 +104,13 @@ CREATE TABLE IF NOT EXISTS victron (
   off_reason INTEGER,
   PRIMARY KEY (kind, ts)
 );
+
+-- Place names for spots Trola charged or stayed at, from OpenStreetMap (Nominatim), so each spot
+-- (rounded to about 100 m) is looked up only once.
+CREATE TABLE IF NOT EXISTS places (
+  cell     TEXT PRIMARY KEY,  -- 'lat,lon' to 3 decimals
+  label    TEXT,              -- e.g. 'Camping Bled, Bled, Slovenia'; NULL if nothing is there (open sea)
+  locality TEXT,
+  country  TEXT,
+  ts       INTEGER            -- when it was looked up
+);
