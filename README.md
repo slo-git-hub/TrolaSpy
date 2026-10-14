@@ -47,6 +47,12 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   times), longer ranges use the `daily` and `victron_days` tables for whole days, and the page
   loads nothing while hidden and re-reads the track and stats only every 10 minutes (adding
   each new reading to the line from `/api/latest` in between).
+- **Map** – the route of the last 24 hours, 7 days, 30 days, 12 months or picked days, with
+  night and stop pins worked out in the browser from that route (a stay of 20 min or more
+  within 150 m; one over 3 a.m. in Trola's time zone is a night). The track keeps the first and
+  last reading of each time bucket, so where the car was switched off survives downsampling.
+  Trola's local time comes from its last position
+  ([tz-lookup](https://github.com/photostructure/tz-lookup), in the Worker).
 - **Photo pins** – the admin uploads photos from the map page; the browser reads EXIF GPS
   (or matches the photo time to Trola's track, or lets you tap the map), shrinks the photo
   to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).

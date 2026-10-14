@@ -14,6 +14,7 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
+    "@photostructure/tz-lookup": "11.7.0",
     "mediabunny": "1.59.1"
   }
 }

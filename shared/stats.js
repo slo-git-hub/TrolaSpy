@@ -73,20 +73,28 @@ function combine(parts) {
   };
 }
 
-export async function rangeStats(db, since, until = Date.now()) {
+// Days still without a summary are read directly, but at most maxLiveDays of them (each is a
+// day of readings); the rest are left out and the answer says `partial`, to ask again later.
+export async function rangeStats(db, since, until = Date.now(), maxLiveDays = Infinity) {
   if (until - since <= LIVE_MAX_MS) return combine([await liveStats(db, since, until)]);
   const a = Math.ceil(since / DAY_MS) * DAY_MS, b = Math.floor(until / DAY_MS) * DAY_MS;
   await ensureDays(db, a, b);
-  const { results: days } = await db.prepare('SELECT * FROM daily WHERE day >= ? AND day < ?').bind(dayKey(a), dayKey(b)).all();
-  // Days still without a summary (ensureDays does a few per call) are read directly.
+  const [{ results: days }, first] = await Promise.all([
+    db.prepare('SELECT * FROM daily WHERE day >= ? AND day < ?').bind(dayKey(a), dayKey(b)).all(),
+    db.prepare('SELECT MIN(ts) AS ts FROM readings').first(),
+  ]);
+  // Days still without a summary (ensureDays does a few per call) are read directly, at most
+  // `maxLiveDays` of them; `partial` says some were left out. Days before the first reading have none.
   const have = new Set(days.map((d) => d.day)), gaps = [];
-  for (let t = a, g = null; t < b; t += DAY_MS) {
-    if (have.has(dayKey(t))) g = null;
-    else if (g) g[1] = t + DAY_MS;
-    else gaps.push(g = [t, t + DAY_MS]);
+  let left = maxLiveDays, partial = false;
+  for (let t = first?.ts == null ? b : Math.max(a, dayStart(first.ts)), g = null; t < b; t += DAY_MS) {
+    if (have.has(dayKey(t))) { g = null; continue; }
+    if (left < 1) { partial = true; continue; }
+    left--;
+    if (g) g[1] = t + DAY_MS; else gaps.push(g = [t, t + DAY_MS]);
   }
   const live = await Promise.all([[since, a], ...gaps, [b, until]].map(([x, y]) => liveStats(db, x, y)));
-  return combine([...live, ...days.map(fromDaily)]);
+  return { ...combine([...live, ...days.map(fromDaily)]), ...(partial ? { partial } : {}) };
 }
 
 // ---------- Daily summaries (UTC days) ----------

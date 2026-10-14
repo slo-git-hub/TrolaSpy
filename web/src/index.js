@@ -16,12 +16,31 @@ import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
 import { RUN_GAP_MS, victronDays } from '../../shared/victron-days.js';
+import tzlookup from '@photostructure/tz-lookup';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
 
-const MAX_HOURS = 30 * 24;
+const MAX_HOURS = 30 * 24; // solar charts
 const MAX_POINTS = 3000;
+// The route, chart and totals cover up to a year, or a range of days the viewer picks.
+const MAX_RANGE_MS = 400 * 864e5;
+// Totals over a long range read days without a summary directly, but only this many per call.
+const STATS_LIVE_DAYS = 4;
+
+// ?hours=N is the last N hours; ?from=&to= (ms since epoch) a range of the viewer's choosing.
+function rangeOf(url) {
+  const now = Date.now(), q = url.searchParams;
+  const from = Number(q.get('from')), to = Number(q.get('to'));
+  if (from > 0 && to > from) {
+    const until = Math.min(to, now);
+    return { since: Math.max(from, until - MAX_RANGE_MS), until };
+  }
+  return { since: now - Math.min(Math.max(1, Number(q.get('hours')) || 24) * 3600e3, MAX_RANGE_MS), until: now };
+}
+
+// The time zone at a spot (IANA name, such as Europe/Ljubljana), for the clock showing Trola's local time.
+const timeZoneAt = (p) => { try { return p && p.lat !== null ? tzlookup(p.lat, p.lon) : null; } catch { return null; } };
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -56,28 +75,33 @@ async function latest(env) {
   const pos = row && row.lat === null
     ? await env.DB.prepare('SELECT ts, lat, lon FROM readings WHERE lat IS NOT NULL ORDER BY ts DESC LIMIT 1').first()
     : null;
-  return { reading: row, lastPosition: pos, co2_g_per_km: CO2_SAVED_G_PER_KM };
+  return { reading: row, lastPosition: pos, tz: timeZoneAt(pos || row), co2_g_per_km: CO2_SAVED_G_PER_KM };
 }
 
-// Downsampled to one point per bucket (the bucket's first reading). Up to 2 days, grouping reads
-// every reading once; longer ranges look up each bucket's first reading by time instead, which
-// reads about two rows per bucket rather than every reading (D1's free plan counts rows read).
+// Downsampled to two points per bucket (its first and last reading). Up to 2 days, grouping reads
+// every reading once; longer ranges look up each bucket's first and last reading by time instead,
+// which reads about two rows per bucket rather than every reading (D1's free plan counts rows read).
 const POINT_COLS = (r) => `${r}.ts, ${r}.lat, ${r}.lon, NULLIF(${r}.soc, 0) AS soc, ${r}.speed, ${r}.chrg_pwr, ${r}.pwr_sw, ${r}.bat_temp, ${r}.amb_temp,
   CASE WHEN ${r}.chrg_mode > 0 AND COALESCE(${r}.bat_volts * ${r}.bat_amps, 0) = 0 THEN NULL
        ELSE ROUND(${r}.bat_volts * ${r}.bat_amps / 1000.0, 2) END AS kw`; // none for charging readings without the current
-async function track(env, hours) {
-  const now = Date.now(), since = now - hours * 3600 * 1000;
-  const bucketMs = Math.max(10_000, Math.ceil((hours * 3600 * 1000) / MAX_POINTS));
-  const sql = hours <= 48
-    ? `SELECT ${POINT_COLS('readings').replace('readings.ts,', 'MIN(readings.ts) AS ts,')} FROM readings WHERE ts >= ?1
-        GROUP BY ts / CAST(?2 AS INTEGER) ORDER BY ts`
-    : `WITH RECURSIVE b(t) AS (SELECT ?1 UNION ALL SELECT t + ?2 FROM b WHERE t + ?2 < ?3)
-       SELECT ${POINT_COLS('r')} FROM b JOIN readings r
-           ON r.ts = (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 ORDER BY ts LIMIT 1)
-        ORDER BY r.ts`;
-  const args = hours <= 48 ? [since, bucketMs] : [since, bucketMs, now];
-  const { results } = await env.DB.prepare(sql).bind(...args).all();
-  return { since, bucketMs, points: results };
+async function track(env, since, until) {
+  if (until <= since) return { since, until, bucketMs: 0, points: [] };
+  // The last reading before the car was switched off and the first after it keep where it was
+  // parked, which the map's night and stop pins need.
+  const bucketMs = Math.max(10_000, Math.ceil((until - since) / (MAX_POINTS / 2)));
+  const sql = until - since <= 48 * 3600e3
+    ? `WITH g AS (SELECT MIN(ts) AS a, MAX(ts) AS z FROM readings WHERE ts >= ?1 AND ts <= ?3 GROUP BY ts / CAST(?2 AS INTEGER)),
+            k(ts) AS (SELECT a FROM g UNION SELECT z FROM g)
+       SELECT ${POINT_COLS('r')} FROM k JOIN readings r ON r.ts = k.ts ORDER BY r.ts`
+    : `WITH RECURSIVE b(t) AS (SELECT ?1 UNION ALL SELECT t + ?2 FROM b WHERE t + ?2 < ?3),
+            k(ts) AS (SELECT (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 AND ts <= ?3 ORDER BY ts LIMIT 1) FROM b
+                      UNION SELECT (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 AND ts <= ?3 ORDER BY ts DESC LIMIT 1) FROM b)
+       SELECT ${POINT_COLS('r')} FROM k JOIN readings r ON r.ts = k.ts ORDER BY r.ts`;
+  // The readings just outside the range, so a stay that began before it or ended after it is seen whole.
+  const edge = (op, dir, ts) => env.DB.prepare(`SELECT ts, lat, lon FROM readings WHERE ts ${op} ? ORDER BY ts ${dir} LIMIT 1`).bind(ts).first();
+  const [{ results }, before, after] = await Promise.all([
+    env.DB.prepare(sql).bind(since, bucketMs, until).all(), edge('<', 'DESC', since), edge('>', 'ASC', until)]);
+  return { since, until, bucketMs, points: results, before, after };
 }
 
 // Victron solar charger and DC-DC charger: newest values, a time series for each chart, and the
@@ -108,9 +132,9 @@ async function solar(env, hours) {
   };
 }
 
-async function stats(env, hours) {
-  const since = Date.now() - hours * 3600 * 1000;
-  return { since, ...(await rangeStats(env.DB, since)) };
+async function stats(env, since, until) {
+  if (until <= since) return { since, until, readings: 0 };
+  return { since, until, ...(await rangeStats(env.DB, since, until, STATS_LIVE_DAYS)) };
 }
 
 // Days Trola was driven between two times (ms), for marking them in the photo picker. Days are
@@ -189,16 +213,16 @@ export default {
     if (url.pathname === '/api/latest') return json(await latest(env));
     if (url.pathname === '/api/charges') return json({ sessions: await listSessions(env.DB) });
     if (url.pathname === '/api/track') {
-      const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
-      return json(await track(env, hours));
+      const { since, until } = rangeOf(url);
+      return json(await track(env, since, until));
     }
     if (url.pathname === '/api/solar') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await solar(env, hours));
     }
     if (url.pathname === '/api/stats') {
-      const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
-      return json(await stats(env, hours));
+      const { since, until } = rangeOf(url);
+      return json(await stats(env, since, until));
     }
     if (url.pathname === '/logo') {
       return new Response(logo, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'private, max-age=3600' } });
