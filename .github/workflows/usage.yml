@@ -1,7 +1,8 @@
 name: Cloudflare usage
 
-# Manual only. Shows today's and yesterday's use of the free plan's daily limits (UTC days),
-# as notes on the run. Needs a token that may read account analytics.
+# Manual only. Shows today's and yesterday's use of the free plan's daily limits (UTC days) and
+# the queries that read the most rows, as notes on the run. Needs a token that may read account
+# analytics. Queries are shown with their ? placeholders, so no values (or positions) appear.
 on:
   workflow_dispatch:
 
@@ -32,3 +33,9 @@ jobs:
                 d1AnalyticsAdaptiveGroups(limit: 100, filter: {datetimeHour_geq: $since}, orderBy: [datetimeHour_ASC]) {
                   sum { rowsRead rowsWritten } dimensions { datetimeHour } } } } }')
           note "D1 per hour, last 24 h" "$r" '.errors // (.data.viewer.accounts[0].d1AnalyticsAdaptiveGroups | map([.dimensions.datetimeHour[11:13], .sum.rowsRead, .sum.rowsWritten]))'
+          r=$(gql 'query ($a: string!, $from: Date!, $to: Date!) { viewer { accounts(filter: {accountTag: $a}) {
+                d1QueriesAdaptiveGroups(limit: 12, filter: {date_geq: $from, date_leq: $to}, orderBy: [sum_rowsRead_DESC]) {
+                  count sum { rowsRead rowsWritten } dimensions { query } } } } }')
+          echo "$r" | jq -c '.errors // .data.viewer.accounts[0].d1QueriesAdaptiveGroups[]' | while read -r q; do
+            echo "::notice title=Top query::$(echo "$q" | jq -r '"\(.sum.rowsRead) rows read, \(.count) runs: \(.dimensions.query | gsub("\\s+"; " ") | .[0:220])"' 2>/dev/null || echo "$q" | head -c 600)"
+          done
