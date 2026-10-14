@@ -86,22 +86,26 @@ jobs:
           echo "DEPLOY_START_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
           npm run deploy
 
-      # One-off data fixes, each applied once (recorded in the migrations table).
+      # One-off data fixes, each applied once (recorded in the migrations table): each reads every
+      # stored reading, which D1's free plan counts. New readings are checked on arrival
+      # (ingest/src/parse.js) and on restore (web/src/admin.js).
       - name: Fix stored data
         if: steps.check.outputs.ready == 'true'
         run: |
-          npx wrangler d1 execute trolaspy --remote -c ingest/wrangler.toml --command "
-            CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, applied_ts INTEGER);
-            UPDATE readings SET speed = ROUND(speed * 3.6, 1)
-              WHERE ts < $DEPLOY_START_MS AND speed IS NOT NULL
-                AND NOT EXISTS (SELECT 1 FROM migrations WHERE name = 'speed_kmh');
-            INSERT OR IGNORE INTO migrations VALUES ('speed_kmh', $DEPLOY_START_MS);
-            UPDATE readings SET odo = NULL WHERE odo = 0;
+          d1() { npx wrangler d1 execute trolaspy --remote -c ingest/wrangler.toml "$@"; }
+          applied=$(d1 --json --command "CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY, applied_ts INTEGER);
+            SELECT name FROM migrations" | jq -r '.[-1].results[]?.name' || true)
+          once() {
+            if grep -qx "$1" <<< "$applied"; then echo "$1: done before"; return; fi
+            d1 --command "$2; INSERT OR IGNORE INTO migrations VALUES ('$1', $DEPLOY_START_MS);"
+          }
+          once speed_kmh "UPDATE readings SET speed = ROUND(speed * 3.6, 1) WHERE ts < $DEPLOY_START_MS AND speed IS NOT NULL"
+          once clean_values "UPDATE readings SET odo = NULL WHERE odo = 0;
             UPDATE readings SET amb_temp = NULL WHERE amb_temp > 60 OR amb_temp < -45;
             UPDATE readings SET bat_temp = NULL WHERE bat_temp > 80 OR bat_temp < -40;
             UPDATE readings SET bat_amps = NULL WHERE ABS(bat_amps) > 500;
             UPDATE readings SET bat_volts = NULL WHERE bat_volts < 150 OR bat_volts > 450;
-            DELETE FROM daily WHERE amb_max > 60 OR amb_min < -45 OR used_kwh > 300;"
+            DELETE FROM daily WHERE amb_max > 60 OR amb_min < -45 OR used_kwh > 300"
 
       - name: Set LeafSpy login
         if: steps.check.outputs.ready == 'true'

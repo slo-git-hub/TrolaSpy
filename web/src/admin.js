@@ -1,5 +1,5 @@
 // Admin-only API: alert, public-page and Victron settings, battery health, reports, and backup / restore / delete of readings.
-import { COLUMNS } from '../../ingest/src/parse.js';
+import { COLUMNS, checkValues } from '../../ingest/src/parse.js';
 import { DEFAULT_ALERTS, getSettings, putSetting, sendAlert } from '../../shared/alerts.js';
 import { createVapidKeys } from '../../shared/push.js';
 import { DETAIL_KM, DELAYS_H, publicSettings } from '../../shared/public.js';
@@ -230,14 +230,22 @@ export async function handleAdmin(request, env, url) {
     return json({ token: true, ...u });
   }
   if (path === 'data' && method === 'GET') {
-    const res = await db.prepare('SELECT COUNT(*) AS n, MIN(ts) AS first, MAX(ts) AS last FROM readings').all();
-    const [recent, photos, files] = await Promise.all([
-      db.prepare('SELECT COUNT(*) AS n FROM readings WHERE ts >= ?').bind(Date.now() - 30 * 864e5).first(),
+    // Counted from the day summaries plus today's readings: counting every reading would read
+    // every row (D1's free plan allows 5 million rows read a day).
+    const today = Math.floor(Date.now() / DAY_MS) * DAY_MS, key = (t) => new Date(t).toISOString().slice(0, 10);
+    await ensureDays(db);
+    const [days, live, first, last, photos, files] = await Promise.all([
+      db.prepare('SELECT SUM(readings) AS n, SUM(CASE WHEN day >= ? THEN readings END) AS n30 FROM daily WHERE day < ?')
+        .bind(key(today - 30 * DAY_MS), key(today)).first(),
+      db.prepare('SELECT COUNT(*) AS n FROM readings WHERE ts >= ?').bind(today).first(),
+      db.prepare('SELECT ts FROM readings ORDER BY ts LIMIT 1').first(),
+      db.prepare('SELECT ts FROM readings ORDER BY ts DESC LIMIT 1').all(),
       db.prepare('SELECT COUNT(*) AS n FROM photos').first(),
       photoBytes(env.PHOTOS),
     ]);
     // D1 reports the database file size with every query.
-    return json({ ...res.results[0], db_bytes: res.meta.size_after ?? null, readings_30d: recent.n,
+    return json({ n: (days.n || 0) + live.n, first: first ? first.ts : null, last: last.results[0] ? last.results[0].ts : null,
+      db_bytes: last.meta.size_after ?? null, readings_30d: (days.n30 || 0) + live.n,
       photos: photos.n, photo_bytes: files.bytes, photo_bytes_partial: files.partial });
   }
   if (path === 'export' && method === 'GET') {
@@ -254,7 +262,8 @@ export async function handleAdmin(request, env, url) {
     const num = (v) => (v === null || v === '' || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
     const stmt = db.prepare(`INSERT OR REPLACE INTO readings (${COLUMNS.join(', ')}) VALUES (${COLUMNS.map(() => '?').join(', ')})`);
     const good = rows.filter((r) => Array.isArray(r) && num(r[idx[0]]) > 0);
-    if (good.length) await db.batch(good.map((r) => stmt.bind(...idx.map((i) => (i < 0 ? null : num(r[i]))))));
+    const reading = (r) => checkValues(Object.fromEntries(COLUMNS.map((c, k) => [c, idx[k] < 0 ? null : num(r[idx[k]])])));
+    if (good.length) await db.batch(good.map((r) => { const o = reading(r); return stmt.bind(...COLUMNS.map((c) => o[c])); }));
     const tss = good.map((r) => num(r[idx[0]]));
     if (tss.length) await Promise.all([forgetDays(db, Math.min(...tss), Math.max(...tss)), rewindSessions(db, Math.min(...tss))]);
     return json({ imported: good.length });

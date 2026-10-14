@@ -26,6 +26,7 @@ const inRange = (v, min, max) => (v !== null && v >= min && v <= max ? v : null)
 // 250-400 V and a few hundred amps at most.
 const PACK_VOLTS = [150, 450];
 const PACK_AMPS = [-500, 500];
+const BAT_TEMP = [-40, 80], AMB_TEMP = [-45, 60]; // °C
 
 export function parseReading(params, ts = Date.now()) {
   let lat = num(params.get('Lat'));
@@ -43,8 +44,8 @@ export function parseReading(params, ts = Date.now()) {
     batTemp = fToC(batTemp);
     ambTemp = fToC(ambTemp);
   }
-  batTemp = inRange(batTemp, -40, 80);
-  ambTemp = inRange(ambTemp, -45, 60);
+  batTemp = inRange(batTemp, ...BAT_TEMP);
+  ambTemp = inRange(ambTemp, ...AMB_TEMP);
 
   return {
     ts,
@@ -74,3 +75,7 @@ export function parseReading(params, ts = Date.now()) {
 }
 
 export const COLUMNS = Object.keys(parseReading(new URLSearchParams()));
+
+// A stored reading (from a backup) held to the same limits as a new one.
+export const checkValues = (r) => ({ ...r, odo: r.odo || null, bat_volts: inRange(r.bat_volts, ...PACK_VOLTS),
+  bat_amps: inRange(r.bat_amps, ...PACK_AMPS), bat_temp: inRange(r.bat_temp, ...BAT_TEMP), amb_temp: inRange(r.amb_temp, ...AMB_TEMP) });

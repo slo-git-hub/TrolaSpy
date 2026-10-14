@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseReading } from '../ingest/src/parse.js';
+import { parseReading, checkValues } from '../ingest/src/parse.js';
 
 // Real-world shaped upload, from the leafspy2mqtt README.
 const SAMPLE = 'user=q84fh&pass=x&DevBat=100&Gids=219&Lat=-11.12421&Long=-71.75095&Elv=35&Seq=143&Trip=86&Odo=37774&SOC=46.2757&AHr=107.3014&BatTemp=8.7&Amb=7.0&Wpr=0&PlugState=2&ChrgMode=2&ChrgPwr=1300&VIN=3VWSB81H8WM210368&PwrSw=1&Tunits=C&RPM=0&SOH=92.95&Hx=102.51&Speed=0.0&BatVolts=352.56&BatAmps=-1.006';
@@ -57,4 +57,9 @@ test('drops stand-in pack readings (0 V, 2147483.75 A)', () => {
   const z = parseReading(new URLSearchParams('BatVolts=0&BatAmps=-40.13'));
   assert.equal(z.bat_volts, null);
   assert.equal(z.bat_amps, -40.13);
+});
+
+test('restored readings are held to the same limits as new ones', () => {
+  const r = checkValues({ ts: 1, odo: 0, bat_volts: 12, bat_amps: -40, bat_temp: 120, amb_temp: 18, soc: 50 });
+  assert.deepEqual(r, { ts: 1, odo: null, bat_volts: null, bat_amps: -40, bat_temp: null, amb_temp: 18, soc: 50 });
 });
