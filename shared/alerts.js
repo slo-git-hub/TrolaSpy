@@ -4,6 +4,7 @@
 // Rules are checked on every LeafSpy upload; state lives in the settings table.
 import { KWH_PER_GID } from './charges.js';
 import { sendPush } from './push.js';
+import { dashSoc } from './soc.js';
 
 export const DEFAULT_ALERTS = {
   enabled: false,
@@ -64,10 +65,12 @@ function doneAlert(st, end, quiet) {
 }
 
 // Called by the ingest Worker with each stored reading. Returns a promise for waitUntil.
-export async function checkAlerts(db, row) {
-  const s = await getSettings(db, ['alerts', 'alert_state', 'vapid', 'push_subs']);
+// Battery % in alerts is the dashboard's (see soc.js), as the targets are.
+export async function checkAlerts(db, reading) {
+  const s = await getSettings(db, ['alerts', 'alert_state', 'vapid', 'push_subs', 'soc_cal']);
   const cfg = { ...DEFAULT_ALERTS, ...(s.alerts || {}) };
   if (!cfg.enabled || !s.vapid || !(s.push_subs || []).length) return;
+  const row = { ...reading, soc: dashSoc(reading.soc, s.soc_cal) };
   const prev = s.alert_state || {};
   const st = { ...prev };
   const out = [];

@@ -29,17 +29,24 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   them. Readings go to the `victron` table (a row when something changes, else every 15 min)
   and show in the Solar and DC-DC charger cards. Built by `.github/workflows/bridge.yml` and published as the
   latest GitHub release (`trolaspy-bridge.apk`); its signing key is kept in R2 (`private/`).
-- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings, victron).
+- **`schema.sql`** – the D1 tables (readings, photos, charges, daily, settings, victron, victron_days).
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
   as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the
   admin card; charged to X %, charging finished, battery low),
-  battery health over time (daily SOH / Hx / AHr), and backup (CSV download), restore and
+  battery health over time (daily SOH / Hx / AHr), dashboard readings that turn LeafSpy's SOC
+  into the dashboard's % (`shared/soc.js`; LeafSpy counts a reserve the dashboard hides), and backup (CSV download), restore and
   delete of readings. Day summaries live in the `daily` table (`shared/stats.js`); alert
   rules run on each upload in the ingest Worker (`shared/alerts.js`).
 - **`shared/charges.js`** – charging sessions worked out from readings (charging readings
   less than 15 min apart form one session; energy is pack volts × amps over time, so add-on
   chargers count). The daily job copies finished sessions into `charges` before old readings
   are deleted, so charger pins and their stats are kept for good.
+- **Database reads** – Cloudflare's free D1 plan allows 5 million rows read a day, and LeafSpy
+  uploads every 10 s while the car is on. So sessions and stats are worked out in the Worker
+  from one plain read of the readings (no SQL window functions, which read each row several
+  times), longer ranges use the `daily` and `victron_days` tables for whole days, and the page
+  loads nothing while hidden and re-reads the track and stats only every 10 minutes (adding
+  each new reading to the line from `/api/latest` in between).
 - **Photo pins** – the admin uploads photos from the map page; the browser reads EXIF GPS
   (or matches the photo time to Trola's track, or lets you tap the map), shrinks the photo
   to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).
@@ -144,4 +151,6 @@ open http://localhost:8788
 `Lat`, `Long`, `Elv`, `Speed`, `SOC`, `Gids`, `SOH`, `AHr`, `Hx`, `BatVolts`,
 `BatAmps`, `BatTemp`, `Amb` (converted to °C if `Tunits=F`), `PlugState`,
 `ChrgMode`, `ChrgPwr`, `PwrSw`, `Odo`, `Trip`, `Seq`, `DevBat`, `RPM`.
-The VIN is not stored.
+The VIN is not stored. LeafSpy's stand-in values are dropped: 0 V, a pack current of
+2147483.75 A (sent as the car switches on), outside temperatures no car could see. SOC is stored
+as LeafSpy sends it and shown as the dashboard's %.

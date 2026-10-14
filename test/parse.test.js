@@ -49,3 +49,12 @@ test('drops temperatures LeafSpy sends when the car does not answer', () => {
   assert.equal(ok.amb_temp, -12.5);
   assert.equal(ok.bat_temp, 41);
 });
+
+test('drops stand-in pack readings (0 V, 2147483.75 A)', () => {
+  const r = parseReading(new URLSearchParams('BatVolts=347.07&BatAmps=2147483.75'));
+  assert.equal(r.bat_volts, 347.07);
+  assert.equal(r.bat_amps, null);
+  const z = parseReading(new URLSearchParams('BatVolts=0&BatAmps=-40.13'));
+  assert.equal(z.bat_volts, null);
+  assert.equal(z.bat_amps, -40.13);
+});

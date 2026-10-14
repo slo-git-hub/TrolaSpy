@@ -13,6 +13,7 @@ import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js'
 import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
+import { dashSoc } from '../../shared/soc.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -35,8 +36,11 @@ const missing = (k, v) => v === null || v === undefined || (v === 0 && !k.endsWi
 // newest current measured in the last CHARGE_FILL_MS of the charge is shown instead.
 const CHARGE_FILL_MS = 20 * 60 * 1000;
 
+// Battery % is shown as the dashboard shows it (see soc.js); `soc_leafspy` keeps LeafSpy's own.
+const socCal = async (env) => (await getSettings(env.DB, ['soc_cal'])).soc_cal;
+
 async function latest(env) {
-  const row = await env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first();
+  const [row, cal] = await Promise.all([env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first(), socCal(env)]);
   for (const group of row ? CAR_FIELDS : []) {
     if (!group.some((k) => missing(k, row[k]))) continue;
     const known = await env.DB.prepare(`SELECT ${group.join(', ')} FROM readings WHERE ${group[0]} > 0 ORDER BY ts DESC LIMIT 1`).first();
@@ -49,6 +53,7 @@ async function latest(env) {
     ).bind(row.ts - CHARGE_FILL_MS, row.ts).first();
     Object.assign(row, known || { bat_amps: null });
   }
+  if (row) Object.assign(row, { soc_leafspy: row.soc, soc: dashSoc(row.soc, cal) });
   // Last known position, in case the newest upload had no GPS fix.
   const pos = row && row.lat === null
     ? await env.DB.prepare('SELECT ts, lat, lon FROM readings WHERE lat IS NOT NULL ORDER BY ts DESC LIMIT 1').first()
@@ -56,19 +61,25 @@ async function latest(env) {
   return { reading: row, lastPosition: pos, co2_g_per_km: CO2_SAVED_G_PER_KM };
 }
 
+// Downsampled to one point per bucket (the bucket's first reading). Up to 2 days, grouping reads
+// every reading once; longer ranges look up each bucket's first reading by time instead, which
+// reads about two rows per bucket rather than every reading (D1's free plan counts rows read).
+const POINT_COLS = (r) => `${r}.ts, ${r}.lat, ${r}.lon, NULLIF(${r}.soc, 0) AS soc, ${r}.speed, ${r}.chrg_pwr, ${r}.pwr_sw, ${r}.bat_temp, ${r}.amb_temp,
+  CASE WHEN ${r}.chrg_mode > 0 AND COALESCE(${r}.bat_volts * ${r}.bat_amps, 0) = 0 THEN NULL
+       ELSE ROUND(${r}.bat_volts * ${r}.bat_amps / 1000.0, 2) END AS kw`; // none for charging readings without the current
 async function track(env, hours) {
-  const since = Date.now() - hours * 3600 * 1000;
-  // Downsample so long ranges stay light: one point per bucket.
+  const now = Date.now(), since = now - hours * 3600 * 1000;
   const bucketMs = Math.max(10_000, Math.ceil((hours * 3600 * 1000) / MAX_POINTS));
-  // No power for charging readings that came without the battery current, so the chart skips them.
-  const { results } = await env.DB.prepare(
-    `SELECT MIN(ts) AS ts, lat, lon, NULLIF(soc, 0) AS soc, speed, chrg_pwr, pwr_sw, bat_temp, amb_temp,
-            CASE WHEN chrg_mode > 0 AND COALESCE(bat_volts * bat_amps, 0) = 0 THEN NULL
-                 ELSE ROUND(bat_volts * bat_amps / 1000.0, 2) END AS kw
-       FROM readings WHERE ts >= ?
-      GROUP BY ts / CAST(? AS INTEGER)
-      ORDER BY ts`
-  ).bind(since, bucketMs).all();
+  const sql = hours <= 48
+    ? `SELECT ${POINT_COLS('readings').replace('readings.ts,', 'MIN(readings.ts) AS ts,')} FROM readings WHERE ts >= ?1
+        GROUP BY ts / CAST(?2 AS INTEGER) ORDER BY ts`
+    : `WITH RECURSIVE b(t) AS (SELECT ?1 UNION ALL SELECT t + ?2 FROM b WHERE t + ?2 < ?3)
+       SELECT ${POINT_COLS('r')} FROM b JOIN readings r
+           ON r.ts = (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 ORDER BY ts LIMIT 1)
+        ORDER BY r.ts`;
+  const args = hours <= 48 ? [since, bucketMs] : [since, bucketMs, now];
+  const [{ results }, cal] = await Promise.all([env.DB.prepare(sql).bind(...args).all(), socCal(env)]);
+  for (const p of results) p.soc = dashSoc(p.soc, cal);
   return { since, bucketMs, points: results };
 }
 
@@ -77,22 +88,45 @@ async function track(env, hours) {
 // since it only resets when they wake up the next morning) and how long the DC-DC charger ran
 // per day. A row is stored on every change and at least every 15 minutes, so each "on" row
 // counts until the next one, but for at most RUN_GAP_MS (the bridge app may have stopped).
+// Finished days are kept in victron_days, so only today's rows are read for the day bars.
 const RUN_GAP_MS = 20 * 60 * 1000;
+const DAY_MS = 864e5;
+const victronDay = (db, from, to, now) => [
+  db.prepare(`SELECT MAX(yield_wh) AS wh FROM victron WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? AND ts < ?`).bind(from, to),
+  db.prepare(`WITH r AS (SELECT ts, state, LEAD(ts) OVER (ORDER BY ts) AS nx FROM victron WHERE kind = 'dcdc' AND ts >= ?1 AND ts < ?2 + ?3)
+              SELECT SUM(MIN(COALESCE(nx, ?4), ts + ?3) - ts) AS on_ms FROM r WHERE state > 0 AND ts < ?2`).bind(from, to, RUN_GAP_MS, now),
+];
+async function victronDays(db, now) {
+  const today = Math.floor(now / DAY_MS) * DAY_MS, first = today - 30 * DAY_MS;
+  const { results: stored } = await db.prepare('SELECT * FROM victron_days WHERE day >= ?').bind(dayKey(first)).all();
+  const have = new Set(stored.map((d) => d.day));
+  // A day is stored once over (and the DC-DC charger's last run in it counted); a few per call.
+  const store = [], live = [];
+  for (let t = first; t <= today; t += DAY_MS) {
+    if (have.has(dayKey(t))) continue;
+    if (t + DAY_MS + RUN_GAP_MS > now) live.push(t); else if (store.length < 10) store.push(t);
+  }
+  const want = [...store, ...live];
+  const res = await db.batch(want.flatMap((t) => victronDay(db, t, t + DAY_MS, now)));
+  const got = want.map((t, i) => ({ day: dayKey(t), solar_wh: res[2 * i].results[0].wh, dcdc_on_ms: res[2 * i + 1].results[0].on_ms }));
+  if (store.length) {
+    const ins = db.prepare('INSERT OR REPLACE INTO victron_days (day, solar_wh, dcdc_on_ms) VALUES (?, ?, ?)');
+    await db.batch(got.slice(0, store.length).map((d) => ins.bind(d.day, d.solar_wh, d.dcdc_on_ms)));
+  }
+  return [...stored, ...got].sort((a, b) => (a.day < b.day ? -1 : 1));
+}
+
 async function solar(env, hours) {
-  const now = Date.now(), since = now - hours * 3600e3, month = now - 30 * 864e5;
+  const now = Date.now(), since = now - hours * 3600e3;
   const bucketMs = Math.max(60_000, Math.ceil((hours * 3600e3) / 600));
   const one = (kind) => env.DB.prepare('SELECT * FROM victron WHERE kind = ? ORDER BY ts DESC LIMIT 1').bind(kind).first();
-  const [sol, dcdc, pts, days, dpts, runs, rest] = await Promise.all([
+  const [sol, dcdc, pts, dpts, days, rest] = await Promise.all([
     one('solar'), one('dcdc'),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(pv_w)) AS pv_w, ROUND(AVG(batt_v), 2) AS batt_v
                       FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
-    env.DB.prepare(`SELECT ts / 86400000 AS d, MAX(yield_wh) AS wh FROM victron
-                     WHERE kind = 'solar' AND pv_w > 0 AND ts >= ? GROUP BY d ORDER BY d`).bind(month).all(),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(in_v), 2) AS in_v FROM victron
                      WHERE kind = 'dcdc' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
-    env.DB.prepare(`WITH r AS (SELECT ts, state, LEAD(ts) OVER (ORDER BY ts) AS nx FROM victron WHERE kind = 'dcdc' AND ts >= ?1)
-                    SELECT ts / 86400000 AS d, SUM(MIN(COALESCE(nx, ?2), ts + ?3) - ts) AS on_ms FROM r
-                     WHERE state > 0 GROUP BY d ORDER BY d`).bind(month, now, RUN_GAP_MS).all(),
+    victronDays(env.DB, now),
     // The leisure battery's newest voltage while neither charger was charging it (last 24 h).
     env.DB.prepare(`SELECT ts, batt_v FROM victron s
                      WHERE kind = 'solar' AND ts >= ?1 AND batt_v > 0 AND COALESCE(batt_a, 0) < ${CHARGING_A} AND COALESCE(state, 0) NOT IN (${HELD.join(', ')})
@@ -102,8 +136,8 @@ async function solar(env, hours) {
   ]);
   return {
     solar: sol, dcdc, points: pts.results, dcdc_points: dpts.results, leisure: leisureCharge(sol, dcdc, rest),
-    days: days.results.map((r) => ({ day: dayKey(r.d * 864e5), wh: r.wh })),
-    dcdc_days: runs.results.map((r) => ({ day: dayKey(r.d * 864e5), on_ms: r.on_ms })),
+    days: days.filter((d) => d.solar_wh !== null).map((d) => ({ day: d.day, wh: d.solar_wh })),
+    dcdc_days: days.filter((d) => d.dcdc_on_ms !== null).map((d) => ({ day: d.day, on_ms: d.dcdc_on_ms })),
   };
 }
 
@@ -183,7 +217,11 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
     if (url.pathname === '/api/latest') return json(await latest(env));
-    if (url.pathname === '/api/charges') return json({ sessions: await listSessions(env.DB) });
+    if (url.pathname === '/api/charges') {
+      const [sessions, cal] = await Promise.all([listSessions(env.DB), socCal(env)]);
+      for (const c of sessions) Object.assign(c, { soc_start: dashSoc(c.soc_start, cal), soc_end: dashSoc(c.soc_end, cal) });
+      return json({ sessions });
+    }
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await track(env, hours));

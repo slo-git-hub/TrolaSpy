@@ -21,6 +21,12 @@ const fToC = (f) => (f === null ? null : Math.round(((f - 32) * 5 / 9) * 10) / 1
 // right after the car is switched off. Anything no car could really see is dropped.
 const inRange = (v, min, max) => (v !== null && v >= min && v <= max ? v : null);
 
+// The pack gets stand-ins too: 0 V while the car doesn't answer, and 2147483.75 A (a computer's
+// largest whole number, in thousandths) just as the car switches on. Trola's pack runs at about
+// 250-400 V and a few hundred amps at most.
+const PACK_VOLTS = [150, 450];
+const PACK_AMPS = [-500, 500];
+
 export function parseReading(params, ts = Date.now()) {
   let lat = num(params.get('Lat'));
   let lon = num(params.get('Long'));
@@ -51,8 +57,8 @@ export function parseReading(params, ts = Date.now()) {
     soh: num(params.get('SOH')),
     ahr: num(params.get('AHr')),
     hx: num(params.get('Hx')),
-    bat_volts: num(params.get('BatVolts')),
-    bat_amps: num(params.get('BatAmps')),
+    bat_volts: inRange(num(params.get('BatVolts')), ...PACK_VOLTS),
+    bat_amps: inRange(num(params.get('BatAmps')), ...PACK_AMPS),
     bat_temp: batTemp,
     amb_temp: ambTemp,
     plug_state: int(params.get('PlugState')),
