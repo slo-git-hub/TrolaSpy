@@ -125,6 +125,8 @@
   .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px;
     padding: 4px 10px; border-radius: 8px; cursor: pointer; }
   .seg button.active { background: var(--solid); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  #admtab { flex-wrap: wrap; margin-bottom: 12px; }
+  #admtab button { flex: 1 0 auto; padding: 4px; }
   .seg button svg { width: 15px; height: 15px; display: block; }
   #range button { padding: 4px 8px; }
   .rangepick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 10px; font-size: 13px; color: var(--muted); }
@@ -223,6 +225,8 @@
   .adm .btn.danger { background: #b4232a; color: #fff; }
   .adm .msg { font-size: 12px; color: var(--muted); }
   .adm h3 { margin: 4px 0 0; font-size: 13px; }
+  .adm ol.steps { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.5; display: grid; gap: 4px; }
+  #mc-off[hidden], #mc-on[hidden] { display: none; }
   .meters { display: flex; flex-direction: column; gap: 12px; }
   .meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .meter-head span { color: var(--muted); font-size: 13px; }
@@ -608,8 +612,8 @@
   <section class="card" id="admincard" hidden>
     <div class="chart-head">
       <h2>Admin</h2>
-      <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button><button data-t="public">Public</button><button data-t="victron">Solar</button></div>
     </div>
+    <div class="seg" id="admtab"><button data-t="alerts" class="active">Alerts</button><button data-t="health">Battery</button><button data-t="data">Data</button><button data-t="public">Public</button><button data-t="victron">Solar</button><button data-t="chatgpt">ChatGPT</button></div>
     <div class="adm" id="adm-alerts">
       <label class="row"><input type="checkbox" id="al-enabled"><b>Send alerts</b></label>
       <div class="note">Alerts pop up as notifications from TrolaSpy on each phone or computer where you turn them on. <span id="al-devices"></span></div>
@@ -632,6 +636,28 @@
       <label class="row"><input type="checkbox" id="pb-photos">Photo pins</label>
       <div class="note">Photo pins sit on the exact spot where each photo was taken. With a delay, newer photos wait too.</div>
       <div class="btns"><button class="btn primary" id="pb-save">Save</button><span class="msg" id="pb-msg"></span></div>
+    </div>
+    <div class="adm" id="adm-chatgpt" hidden>
+      <div class="note">Ask ChatGPT about Trola, by voice too: "How many kilometres did I drive yesterday?", "How much energy did Trola use
+        on Sunday?", "When did I last charge?", "What's the battery at?" ChatGPT gets the answers from TrolaSpy through a private link.
+        It can only read totals, charging and the battery, not the map, the route or photos.</div>
+      <div class="btns" id="mc-off"><button class="btn primary" id="mc-make">Make a ChatGPT link</button></div>
+      <div class="adm" id="mc-on" hidden>
+        <label>Link for ChatGPT<br><input class="key" type="text" id="mc-url" readonly></label>
+        <div class="btns"><button class="btn primary" id="mc-copy">Copy</button><button class="btn" id="mc-new">New link</button>
+          <button class="btn danger" id="mc-stop">Turn off</button></div>
+        <div class="note" id="mc-used"></div>
+        <h3>Add it to ChatGPT</h3>
+        <ol class="steps">
+          <li>On a computer, open chatgpt.com. In Settings, open Apps, then Advanced settings, and turn on Developer mode.</li>
+          <li>Click Create app. Name it TrolaSpy, paste the link above as the MCP server URL, and choose No authentication.</li>
+          <li>Accept the warning and create it. ChatGPT shows TrolaSpy's four tools, which only read.</li>
+          <li>In a chat, pick TrolaSpy from the + menu, or start voice and ask about Trola.</li>
+        </ol>
+        <div class="note">Anyone with the link can ask these questions, so keep it to yourself. New link replaces it (paste the new one
+          into the app's settings in ChatGPT); Turn off stops it.</div>
+      </div>
+      <span class="msg" id="mc-msg"></span>
     </div>
     <div class="adm" id="adm-victron" hidden>
       <div class="note">The solar charger and the DC-DC charger send their readings over Bluetooth. The TrolaSpy Bridge app
@@ -2149,8 +2175,8 @@ function openAdmin() {
 $('admtab').addEventListener('click', (e) => {
   const t = e.target.dataset && e.target.dataset.t; if (!t) return;
   document.querySelectorAll('#admtab button').forEach((b) => b.classList.toggle('active', b === e.target));
-  ['alerts', 'health', 'data', 'public', 'victron'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
-  if (t === 'victron') loadSettings();
+  ['alerts', 'health', 'data', 'public', 'victron', 'chatgpt'].forEach((k) => { $(`adm-${k}`).hidden = k !== t; });
+  if (t === 'victron' || t === 'chatgpt') loadSettings();
   if (t === 'health') loadHealth();
   if (t === 'data') loadDataInfo();
 });
@@ -2162,6 +2188,7 @@ async function loadSettings() {
     $('al-done').checked = s.alerts.done_on; $('al-low').checked = s.alerts.low_on; $('al-low-soc').value = s.alerts.low_soc;
     $('al-price').value = s.price ?? ''; pushKey = s.push_key; pushDevices = s.devices; showPush();
     showPublic(s.public, s.public_url);
+    showMcp(s.mcp);
     $('vk-server').textContent = s.ingest_url || 'address of your trolaspy-ingest Worker';
     $('vk-solar').value = s.victron.solar; $('vk-dcdc').value = s.victron.dcdc; showHeard(s.bridge, s.victron);
   } catch (e) { say('al-msg', e.message); }
@@ -2207,6 +2234,26 @@ $('pb-save').addEventListener('click', async () => {
 $('pb-copy').addEventListener('click', (e) => {
   e.preventDefault();
   navigator.clipboard.writeText($('pb-link').href).then(() => say('pb-msg', 'Link copied.'), () => say('pb-msg', 'Press and hold the link to copy it.'));
+});
+
+// The ChatGPT link: TrolaSpy's MCP server (the trolaspy-mcp Worker) at a secret address.
+function showMcp(m) {
+  $('mc-off').hidden = !!m.on; $('mc-on').hidden = !m.on;
+  if (!m.on) return;
+  $('mc-url').value = m.url || 'Set MCP_URL: this page is not on workers.dev, so the address is not known.';
+  $('mc-used').textContent = m.used_ts ? `ChatGPT last asked ${fmtDate(m.used_ts)}.` : 'Not used yet.';
+}
+async function setMcp(on, ask) {
+  if (ask && !confirm(ask)) return;
+  say('mc-msg', on ? 'Making a link…' : 'Turning it off…');
+  try { showMcp((await api('mcp', { method: 'POST', body: JSON.stringify({ on }) })).mcp); say('mc-msg', on ? '' : 'Off. The old link no longer works.'); }
+  catch (e) { say('mc-msg', e.message); }
+}
+$('mc-make').addEventListener('click', () => setMcp(true));
+$('mc-new').addEventListener('click', () => setMcp(true, 'Make a new link? The old one stops working, so ChatGPT will need the new one.'));
+$('mc-stop').addEventListener('click', () => setMcp(false, 'Turn off the ChatGPT link? ChatGPT will no longer get answers from TrolaSpy.'));
+$('mc-copy').addEventListener('click', () => {
+  navigator.clipboard.writeText($('mc-url').value).then(() => say('mc-msg', 'Link copied.'), () => { $('mc-url').select(); say('mc-msg', 'Copy the selected link.'); });
 });
 
 // Phone alerts are Web Push notifications, shown by the service worker (see pwa.js).

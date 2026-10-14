@@ -14,9 +14,8 @@ import { listSessions } from '../../shared/charges.js';
 import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js';
 import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
-import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
-import { RUN_GAP_MS, victronDays } from '../../shared/victron-days.js';
-import tzlookup from '@photostructure/tz-lookup';
+import { victronDays } from '../../shared/victron-days.js';
+import { latestReading, victronNow } from '../../shared/latest.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, replacePhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -39,43 +38,15 @@ function rangeOf(url) {
   return { since: now - Math.min(Math.max(1, Number(q.get('hours')) || 24) * 3600e3, MAX_RANGE_MS), until: now };
 }
 
-// The time zone at a spot (IANA name, such as Europe/Ljubljana), for the clock showing Trola's local time.
-const timeZoneAt = (p) => { try { return p && p.lat !== null ? tzlookup(p.lat, p.lon) : null; } catch { return null; } };
-
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 
-// Values only the car itself can give. When it doesn't answer (just after it is switched off)
-// LeafSpy sends nothing or 0 for them, so the last ones it did give are shown instead. Each
-// group comes from the newest reading that has its first value.
-const CAR_FIELDS = [['soc', 'gids', 'bat_temp', 'amb_temp'], ['soh', 'hx', 'ahr'], ['odo']];
-const missing = (k, v) => v === null || v === undefined || (v === 0 && !k.endsWith('_temp'));
-// While charging, LeafSpy sometimes gets no battery current from the car and sends 0. The
-// newest current measured in the last CHARGE_FILL_MS of the charge is shown instead.
-const CHARGE_FILL_MS = 20 * 60 * 1000;
-
 async function latest(env) {
-  const row = await env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first();
-  for (const group of row ? CAR_FIELDS : []) {
-    if (!group.some((k) => missing(k, row[k]))) continue;
-    const known = await env.DB.prepare(`SELECT ${group.join(', ')} FROM readings WHERE ${group[0]} > 0 ORDER BY ts DESC LIMIT 1`).first();
-    if (known) for (const k of group) if (missing(k, row[k]) && !missing(k, known[k])) row[k] = known[k];
-  }
-  if (row && row.chrg_mode > 0 && !(row.bat_volts * row.bat_amps)) {
-    const known = await env.DB.prepare(
-      `SELECT bat_volts, bat_amps FROM readings
-        WHERE ts >= ? AND ts < ? AND chrg_mode > 0 AND bat_volts * bat_amps < 0 ORDER BY ts DESC LIMIT 1`
-    ).bind(row.ts - CHARGE_FILL_MS, row.ts).first();
-    Object.assign(row, known || { bat_amps: null });
-  }
-  // Last known position, in case the newest upload had no GPS fix.
-  const pos = row && row.lat === null
-    ? await env.DB.prepare('SELECT ts, lat, lon FROM readings WHERE lat IS NOT NULL ORDER BY ts DESC LIMIT 1').first()
-    : null;
-  return { reading: row, lastPosition: pos, tz: timeZoneAt(pos || row), co2_g_per_km: CO2_SAVED_G_PER_KM };
+  const { reading, lastPosition, tz } = await latestReading(env.DB);
+  return { reading, lastPosition, tz, co2_g_per_km: CO2_SAVED_G_PER_KM };
 }
 
 // Downsampled to two points per bucket (its first and last reading). Up to 2 days, grouping reads
@@ -110,23 +81,16 @@ const DAY_MS = 864e5;
 async function solar(env, hours) {
   const now = Date.now(), since = now - hours * 3600e3, today = Math.floor(now / DAY_MS) * DAY_MS;
   const bucketMs = Math.max(60_000, Math.ceil((hours * 3600e3) / 600));
-  const one = (kind) => env.DB.prepare('SELECT * FROM victron WHERE kind = ? ORDER BY ts DESC LIMIT 1').bind(kind).first();
-  const [sol, dcdc, pts, dpts, days, rest] = await Promise.all([
-    one('solar'), one('dcdc'),
+  const [{ solar: sol, dcdc, leisure }, pts, dpts, days] = await Promise.all([
+    victronNow(env.DB, now),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(pv_w)) AS pv_w, ROUND(AVG(batt_v), 2) AS batt_v
                       FROM victron WHERE kind = 'solar' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
     env.DB.prepare(`SELECT MIN(ts) AS ts, ROUND(AVG(in_v), 2) AS in_v FROM victron
                      WHERE kind = 'dcdc' AND ts >= ? GROUP BY ts / CAST(? AS INTEGER) ORDER BY ts`).bind(since, bucketMs).all(),
     victronDays(env.DB, now, today - 30 * DAY_MS, today).then((v) => v.days),
-    // The leisure battery's newest voltage while neither charger was charging it (last 24 h).
-    env.DB.prepare(`SELECT ts, batt_v FROM victron s
-                     WHERE kind = 'solar' AND ts >= ?1 AND batt_v > 0 AND COALESCE(batt_a, 0) < ${CHARGING_A} AND COALESCE(state, 0) NOT IN (${HELD.join(', ')})
-                       AND COALESCE((SELECT state FROM victron d WHERE d.kind = 'dcdc' AND d.ts <= s.ts AND d.ts > s.ts - ?2
-                                       ORDER BY d.ts DESC LIMIT 1), 0) = 0
-                     ORDER BY ts DESC LIMIT 1`).bind(now - 864e5, RUN_GAP_MS).first(),
   ]);
   return {
-    solar: sol, dcdc, points: pts.results, dcdc_points: dpts.results, leisure: leisureCharge(sol, dcdc, rest),
+    solar: sol, dcdc, points: pts.results, dcdc_points: dpts.results, leisure,
     days: days.filter((d) => d.solar_wh !== null).map((d) => ({ day: d.day, wh: d.solar_wh })),
     dcdc_days: days.filter((d) => d.dcdc_on_ms !== null).map((d) => ({ day: d.day, on_ms: d.dcdc_on_ms })),
   };

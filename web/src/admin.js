@@ -50,6 +50,14 @@ const publicUrl = (env, url) => env.PUBLIC_URL
 const ingestUrl = (env, url) => env.INGEST_URL
   || (url.hostname.endsWith('.workers.dev') ? `https://${url.hostname.replace(/^[^.]+/, 'trolaspy-ingest')}` : null);
 
+// The ChatGPT connector: the "trolaspy-mcp" Worker (or MCP_URL), at a path with a secret.
+const mcpBase = (env, url) => env.MCP_URL
+  || (url.hostname.endsWith('.workers.dev') ? `https://${url.hostname.replace(/^[^.]+/, 'trolaspy-mcp')}` : null);
+const mcpInfo = (env, url, m) => (m && m.token
+  ? { on: true, url: mcpBase(env, url) && `${mcpBase(env, url)}/mcp/${m.token}`, made_ts: m.made_ts || null, used_ts: m.used_ts || null }
+  : { on: false });
+const newSecret = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))).replace(/\+/g, '-').replace(/\//g, '_');
+
 // Total size of the photo files in R2 (photo + thumbnail each). Each list call is a
 // subrequest, and a free-plan Worker may make 50, so very large buckets are only counted in part.
 async function photoBytes(bucket) {
@@ -73,11 +81,12 @@ export async function handleAdmin(request, env, url) {
   const method = request.method;
 
   if (path === 'settings' && method === 'GET') {
-    const s = await getSettings(db, ['alerts', 'price', 'push_subs', 'victron', 'bridge']);
+    const s = await getSettings(db, ['alerts', 'price', 'push_subs', 'victron', 'bridge', 'mcp']);
     return json({ alerts: { ...DEFAULT_ALERTS, ...(s.alerts || {}) }, price: s.price ?? null,
       push_key: (await vapid(db, url)).publicKey, devices: devices(s.push_subs),
       public: await publicSettings(db), public_url: publicUrl(env, url),
-      victron: { solar: '', dcdc: '', ...(s.victron || {}) }, bridge: s.bridge || null, ingest_url: ingestUrl(env, url) });
+      victron: { solar: '', dcdc: '', ...(s.victron || {}) }, bridge: s.bridge || null, ingest_url: ingestUrl(env, url),
+      mcp: mcpInfo(env, url, s.mcp) });
   }
   if (path === 'settings' && method === 'PUT') {
     const body = await request.json();
@@ -100,6 +109,13 @@ export async function handleAdmin(request, env, url) {
     };
     await putSetting(db, 'public', cfg);
     return json({ public: cfg });
+  }
+  // Body { on }: on makes a new secret address (the old one stops working); off removes it.
+  if (path === 'mcp' && method === 'POST') {
+    const b = await request.json();
+    const m = b.on ? { token: newSecret(), made_ts: Date.now() } : null;
+    if (m) await putSetting(db, 'mcp', m); else await db.prepare("DELETE FROM settings WHERE key = 'mcp'").run();
+    return json({ mcp: mcpInfo(env, url, m) });
   }
   if (path === 'victron' && method === 'PUT') {
     const b = await request.json();

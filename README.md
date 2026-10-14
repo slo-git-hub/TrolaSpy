@@ -21,6 +21,18 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   (a 5 km or 1.5 km grid cell, `shared/public.js`), on the road / parked / charging, km totals
   and optionally the photo pins, optionally some hours late. Blank until switched on in the
   admin card's Public tab. Must stay outside Cloudflare Access.
+- **`mcp/`** – the ChatGPT connector (Worker `trolaspy-mcp`, no login): a small
+  [MCP](https://modelcontextprotocol.io) server with four read-only tools, so ChatGPT, in chat
+  or Live voice, can answer "how many km did I drive yesterday?" or "how much energy did Trola
+  use on Sunday?". `get_trola_status` (battery, range, charging, leisure battery, local time),
+  `get_trola_stats` (totals for any days), `get_trola_days` (day by day) and `get_trola_charges`.
+  Days are calendar days where Trola is (`shared/latest.js` finds the time zone), and words
+  like "yesterday" or "Sunday" work. It never gives out positions, the route or photos. Its
+  address has a secret path made in the admin card's ChatGPT tab (New link replaces it, Turn
+  off removes it); any other path answers 404. Stateless Streamable HTTP, answering both the
+  2026-07-28 protocol and the older 2025 `initialize` handshake (`mcp/src/protocol.js`).
+  Must stay outside Cloudflare Access. Add it in ChatGPT on the web: Settings → Apps →
+  Advanced settings → Developer mode, then Create app with the link and No authentication.
 - **`bridge/`** – TrolaSpy Bridge, a small Android app for the same tablet. It listens for the
   Victron SmartSolar and Orion Smart chargers' Bluetooth "Instant readout" broadcasts for 30 s
   every 5 minutes (no connection, so VictronConnect keeps working) and POSTs the newest one from
@@ -104,7 +116,8 @@ You need a free Cloudflare account and Node 20+.
    - Open `trolaspy.<you>.workers.dev`: you should get the email-code login. Without
      Access in front, the Worker answers `403 Forbidden` on purpose.
    - Do **not** protect `trolaspy-ingest`; LeafSpy can't log in. Its ID/password is
-     its protection.
+     its protection. Leave `trola` (public page) and `trolaspy-mcp` (ChatGPT) open too;
+     the MCP Worker's secret link is its protection.
 6. **Point LeafSpy at it** (LeafSpy Pro → ≡ → Settings → Server):
    - `Enable` ✓, Send interval **10 s**
    - Pick a free slot (e.g. **B**; keep leaf-status.com in its slot) → `Enable` ✓
@@ -148,6 +161,7 @@ printf 'DEV_NO_AUTH=1\n' > web/.dev.vars
 npx wrangler d1 execute trolaspy --local --persist-to .wrangler/state --file schema.sql -c ingest/wrangler.toml
 npx wrangler dev -c ingest/wrangler.toml --port 8787 --persist-to .wrangler/state
 npx wrangler dev -c web/wrangler.toml --port 8788 --inspector-port 9339 --persist-to .wrangler/state
+npx wrangler dev -c mcp/wrangler.toml --port 8790 --inspector-port 9340 --persist-to .wrangler/state
 curl "localhost:8787/?user=trola&pass=secret&Lat=46.05&Long=14.5&SOC=80&Gids=200&PwrSw=1"
 open http://localhost:8788
 ```

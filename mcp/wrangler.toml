@@ -1,0 +1,11 @@
+# ChatGPT connector: an MCP server with read-only tools about Trola. Its address has a secret
+# path, made and shown in the admin card on the map page (Admin, ChatGPT).
+name = "trolaspy-mcp"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "trolaspy"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
