@@ -20,23 +20,13 @@ jobs:
         run: |
           q() { echo "== $1"; npx wrangler d1 execute trolaspy --remote --json --command "$2" | jq -c '.[0].results[]'; }
           SINCE="(strftime('%s','now') - 3*86400) * 1000"
-          q "Implausible pack readings left" \
-            "SELECT SUM(ABS(bat_volts*bat_amps) > 120000) huge_w, SUM(ABS(bat_amps) > 500) a_huge, SUM(bat_volts < 150) v_low, COUNT(*) total FROM readings"
-          q "New columns and tables" \
-            "SELECT (SELECT COUNT(*) FROM pragma_table_info('daily') WHERE name = 'max_regen_kw') daily_col, (SELECT COUNT(*) FROM sqlite_master WHERE name = 'victron_days') victron_days_table"
-          q "Energy per UTC day (live formula)" \
-            "WITH r AS (SELECT ts, odo, speed, pwr_sw, COALESCE(chrg_mode,0) cm, bat_volts*bat_amps w, ts - LAG(ts) OVER (ORDER BY ts) dt FROM readings WHERE ts >= (strftime('%s','now') - 4*86400) * 1000)
-             SELECT date(ts/1000,'unixepoch') day, COUNT(*) n, MAX(odo)-MIN(odo) km,
-                    ROUND(SUM(CASE WHEN dt<=150000 AND w>0 AND cm=0 THEN w*dt END)/3.6e9,2) used,
-                    ROUND(SUM(CASE WHEN dt<=150000 AND w<0 AND cm=0 AND pwr_sw=1 THEN -w*dt END)/3.6e9,2) regen
-             FROM r GROUP BY day ORDER BY day DESC"
-          q "Stored day summaries" \
-            "SELECT day, readings, distance_km km, ROUND(used_kwh,2) used, ROUND(regen_kwh,2) regen, ROUND(charged_kwh,2) charged, charges, max_regen_kw FROM daily ORDER BY day DESC LIMIT 5"
-          q "Readings per hour since yesterday 15:00 UTC (outage check)" \
-            "SELECT strftime('%m-%d %H', ts/1000, 'unixepoch') hour, COUNT(*) n FROM readings WHERE ts >= (strftime('%s','2026-10-13 15:00:00')) * 1000 GROUP BY hour ORDER BY hour"
-          q "Charging sessions: stored and where the archive is" \
-            "SELECT (SELECT COUNT(*) FROM charges) stored, (SELECT ROUND((strftime('%s','now')*1000 - CAST(value AS INTEGER)) / 3600000.0, 1) FROM settings WHERE key = 'charges_through') through_h_ago"
-          q "Dashboard readings" \
-            "SELECT value FROM settings WHERE key = 'soc_cal'"
+          q "RPM and tablet battery, last 3 days" \
+            "SELECT COUNT(*) n, SUM(rpm IS NULL) rpm_null, SUM(rpm = 0) rpm_0, SUM(rpm < 0) rpm_neg, MIN(rpm) rpm_min, MAX(rpm) rpm_max, SUM(rpm > 12000) rpm_huge, SUM(dev_bat IS NULL) tab_null, SUM(dev_bat = 0) tab_0, MIN(dev_bat) tab_min, MAX(dev_bat) tab_max FROM readings WHERE ts >= $SINCE"
+          q "RPM by car on/off and charging" \
+            "SELECT pwr_sw, COALESCE(chrg_mode,0) cm, COUNT(*) n, MIN(rpm) mn, MAX(rpm) mx, ROUND(AVG(rpm)) av FROM readings WHERE ts >= $SINCE GROUP BY 1, 2"
+          q "RPM by speed (km/h, rounded to 10)" \
+            "SELECT CAST(ROUND(speed/10)*10 AS INT) sp, COUNT(*) n, MIN(rpm) mn, ROUND(AVG(rpm)) av, MAX(rpm) mx FROM readings WHERE ts >= $SINCE AND pwr_sw = 1 GROUP BY sp ORDER BY sp"
+          q "Most common RPM values" \
+            "SELECT rpm, COUNT(*) n FROM readings WHERE ts >= $SINCE GROUP BY rpm ORDER BY n DESC LIMIT 8"
           echo "== D1 query insights, last 24 h (top by rows read)"
           npx wrangler d1 insights trolaspy --timePeriod=1d --sort-by=reads --limit=8 --json | jq -c '.[] | {reads: .totalRowsRead, runs: .numberOfTimesRun, q: (.query[0:90])}' || true
