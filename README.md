@@ -33,8 +33,7 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
 - **Monthly summary** (everyone) and **admin tools** (the ADMIN_EMAIL account): phone alerts
   as notifications from TrolaSpy itself (Web Push, `shared/push.js`; turned on per phone in the
   admin card; charged to X %, charging finished, battery low),
-  battery health over time (daily SOH / Hx / AHr), dashboard readings that turn LeafSpy's SOC
-  into the dashboard's % (`shared/soc.js`; LeafSpy counts a reserve the dashboard hides), and backup (CSV download), restore and
+  battery health over time (daily SOH / Hx / AHr), and backup (CSV download), restore and
   delete of readings. Day summaries live in the `daily` table (`shared/stats.js`); alert
   rules run on each upload in the ingest Worker (`shared/alerts.js`).
 - **`shared/charges.js`** – charging sessions worked out from readings (charging readings
@@ -152,5 +151,4 @@ open http://localhost:8788
 `BatAmps`, `BatTemp`, `Amb` (converted to °C if `Tunits=F`), `PlugState`,
 `ChrgMode`, `ChrgPwr`, `PwrSw`, `Odo`, `Trip`, `Seq`, `DevBat`, `RPM`.
 The VIN is not stored. LeafSpy's stand-in values are dropped: 0 V, a pack current of
-2147483.75 A (sent as the car switches on), outside temperatures no car could see. SOC is stored
-as LeafSpy sends it and shown as the dashboard's %.
+2147483.75 A (sent as the car switches on), outside temperatures no car could see.

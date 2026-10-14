@@ -13,7 +13,6 @@ import { rangeStats, ensureDays, listDays, dayKey } from '../../shared/stats.js'
 import { getSettings } from '../../shared/alerts.js';
 import { CO2_SAVED_G_PER_KM } from '../../shared/co2.js';
 import { leisureCharge, HELD, CHARGING_A } from '../../shared/lifepo4.js';
-import { dashSoc } from '../../shared/soc.js';
 import { handleAdmin } from './admin.js';
 import { getViewer, isAdmin } from './access.js';
 import { listPhotos, servePhoto, positionAt, uploadPhoto, updatePhoto, deletePhoto } from './photos.js';
@@ -36,11 +35,8 @@ const missing = (k, v) => v === null || v === undefined || (v === 0 && !k.endsWi
 // newest current measured in the last CHARGE_FILL_MS of the charge is shown instead.
 const CHARGE_FILL_MS = 20 * 60 * 1000;
 
-// Battery % is shown as the dashboard shows it (see soc.js); `soc_leafspy` keeps LeafSpy's own.
-const socCal = async (env) => (await getSettings(env.DB, ['soc_cal'])).soc_cal;
-
 async function latest(env) {
-  const [row, cal] = await Promise.all([env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first(), socCal(env)]);
+  const row = await env.DB.prepare('SELECT * FROM readings ORDER BY ts DESC LIMIT 1').first();
   for (const group of row ? CAR_FIELDS : []) {
     if (!group.some((k) => missing(k, row[k]))) continue;
     const known = await env.DB.prepare(`SELECT ${group.join(', ')} FROM readings WHERE ${group[0]} > 0 ORDER BY ts DESC LIMIT 1`).first();
@@ -53,7 +49,6 @@ async function latest(env) {
     ).bind(row.ts - CHARGE_FILL_MS, row.ts).first();
     Object.assign(row, known || { bat_amps: null });
   }
-  if (row) Object.assign(row, { soc_leafspy: row.soc, soc: dashSoc(row.soc, cal) });
   // Last known position, in case the newest upload had no GPS fix.
   const pos = row && row.lat === null
     ? await env.DB.prepare('SELECT ts, lat, lon FROM readings WHERE lat IS NOT NULL ORDER BY ts DESC LIMIT 1').first()
@@ -78,8 +73,7 @@ async function track(env, hours) {
            ON r.ts = (SELECT ts FROM readings WHERE ts >= b.t AND ts < b.t + ?2 ORDER BY ts LIMIT 1)
         ORDER BY r.ts`;
   const args = hours <= 48 ? [since, bucketMs] : [since, bucketMs, now];
-  const [{ results }, cal] = await Promise.all([env.DB.prepare(sql).bind(...args).all(), socCal(env)]);
-  for (const p of results) p.soc = dashSoc(p.soc, cal);
+  const { results } = await env.DB.prepare(sql).bind(...args).all();
   return { since, bucketMs, points: results };
 }
 
@@ -217,11 +211,7 @@ export default {
       return json({ error: 'Not found' }, 404);
     }
     if (url.pathname === '/api/latest') return json(await latest(env));
-    if (url.pathname === '/api/charges') {
-      const [sessions, cal] = await Promise.all([listSessions(env.DB), socCal(env)]);
-      for (const c of sessions) Object.assign(c, { soc_start: dashSoc(c.soc_start, cal), soc_end: dashSoc(c.soc_end, cal) });
-      return json({ sessions });
-    }
+    if (url.pathname === '/api/charges') return json({ sessions: await listSessions(env.DB) });
     if (url.pathname === '/api/track') {
       const hours = Math.min(MAX_HOURS, Math.max(1, Number(url.searchParams.get('hours')) || 24));
       return json(await track(env, hours));

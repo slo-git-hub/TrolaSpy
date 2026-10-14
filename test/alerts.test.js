@@ -4,10 +4,9 @@ import { checkAlerts, checkQuietCharge, sendAlert } from '../shared/alerts.js';
 import { createVapidKeys } from '../shared/push.js';
 import { fakeBrowser } from './browser.js';
 
-// Just enough of D1 for the settings table. No dashboard readings unless a test gives some, so
-// battery % stays LeafSpy's own.
+// Just enough of D1 for the settings table.
 function fakeDb(settings) {
-  const store = new Map(Object.entries({ soc_cal: [], ...settings }).map(([k, v]) => [k, JSON.stringify(v)]));
+  const store = new Map(Object.entries(settings).map(([k, v]) => [k, JSON.stringify(v)]));
   return {
     store,
     prepare(sql) {
@@ -107,15 +106,4 @@ test('a charge LeafSpy stopped seeing ends where it was last seen', async () => 
   assert.deepEqual(sent.map((x) => x.body), ['40% → 60%, +5.4 kWh in about 20 min (when LeafSpy last saw it).']);
   await checkAlerts(db2, reading({ ts: 300 * min, soc: 55, pwr_sw: 1 }));
   assert.equal(sent.length, 1);
-});
-
-test('alerts use the dashboard % when dashboard readings are set', async () => {
-  sent.length = 0;
-  const db = fakeDb({ ...await push('https://push.example.com/dash'), soc_cal: [[35.3, 25]],
-    alerts: { enabled: true, target_on: false, done_on: false, low_on: true, low_soc: 20 } });
-  await checkAlerts(db, reading({ ts: 1, soc: 33, pwr_sw: 1 })); // dashboard about 22 %
-  assert.equal(sent.length, 0);
-  await checkAlerts(db, reading({ ts: 2, soc: 30, pwr_sw: 1 })); // dashboard about 19 %
-  assert.equal(sent.length, 1);
-  assert.match(sent[0].title, /low: 19%/);
 });
