@@ -66,3 +66,18 @@ test('pins get the name of their place, older ones too, each spot asked once', a
   assert.equal(place().filter(([, p]) => p === null).length, 0);
   assert.equal(asked.length, 3, 'the campsite was known already');
 });
+
+test('photos a few steps apart share one name, even across spots', async () => {
+  const env = { DB: d1(), PHOTOS: r2() };
+  const camp = { category: 'tourism', type: 'camp_site', name: 'Camping Lipa', address: { village: 'Lipa', country: 'Slovenia' } };
+  const asked = [];
+  const fetchFn = async (url) => { asked.push(new URL(url).searchParams.get('lat')); return Response.json(camp); };
+  const add = (lat, lon, place = null) => env.DB.sqlite.prepare('INSERT INTO photos (id, lat, lon, place, created_ts) VALUES (?, ?, ?, ?, 1)').run(crypto.randomUUID(), lat, lon, place);
+  add(46.1001, 14.2001, 'Camping Lipa, Lipa, Slovenia'); // named earlier
+  add(46.1008, 14.2009); add(46.0994, 14.1996); // ~100 m away, other spots
+  add(46.1101, 14.2101); add(46.1104, 14.2104); // over a km away: asked once for both
+  await namePhotos(env, { fetchFn, gap: 1 });
+  const rows = env.DB.sqlite.prepare('SELECT place FROM photos').all();
+  assert.equal(rows.filter((r) => r.place === 'Camping Lipa, Lipa, Slovenia').length, 5);
+  assert.equal(asked.length, 1);
+});

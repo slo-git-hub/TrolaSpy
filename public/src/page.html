@@ -129,6 +129,8 @@
   .btn { border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
     background: var(--off); color: var(--text); }
   .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
+  .lightbox .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  a.btn { display: inline-flex; align-items: center; text-decoration: none; }
   /* Above the photo: where it is, and "2 of 5" when more were taken at the same spot; ‹ › to step. */
   .lightbox .top { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 10px; color: #e3f0f3; font-weight: 600;
     max-width: min(640px, calc(100vw - 120px)); text-align: center; }
@@ -164,7 +166,7 @@
   <img id="lbimg" alt="">
   <video id="lbvid" controls playsinline preload="metadata" hidden></video>
   <div class="meta"><div id="lbcaption"></div><small id="lbdate"></small></div>
-  <button class="btn" id="lbgo">Show on map</button>
+  <div class="row"><button class="btn" id="lbgo">Show on map</button><a class="btn" id="lbmaps" target="_blank" rel="noopener">Google Maps ↗</a></div>
 </div>
 
 <div class="panel">
@@ -321,12 +323,15 @@ function showInLightbox(ph) {
     if (v.getAttribute('src')) { v.pause(); v.removeAttribute('src'); v.load(); }
     $('lbimg').src = `/photos/${ph.id}.jpg`;
   }
+  // A pin not named yet borrows the name of one within 150 m.
+  const place = ph.place || (pubPhotos.find((x) => x.place && distM(x, ph) <= 150) || {}).place;
   $('lbplace').innerHTML = '';
-  if (ph.place) { $('lbplace').innerHTML = PIN_ICON; $('lbplace').append(` ${ph.place}`); }
+  if (place) { $('lbplace').innerHTML = PIN_ICON; $('lbplace').append(` ${place}`); }
+  $('lbmaps').href = `https://www.google.com/maps?q=${ph.lat.toFixed(5)},${ph.lon.toFixed(5)}`;
   const many = lb.group.length > 1;
   $('lbcount').textContent = many ? `${lb.i + 1} of ${lb.group.length} here` : '';
   $('lbprev').hidden = $('lbnext').hidden = !many;
-  $('lbplace').closest('.top').hidden = !ph.place && !many;
+  $('lbplace').closest('.top').hidden = !place && !many;
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = fmtDate(ph.taken_ts || ph.created_ts);
   $('lightbox').classList.add('open');

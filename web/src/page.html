@@ -310,6 +310,7 @@
   .lightbox .row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
   .btn { border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
     background: var(--off); color: var(--text); }
+  a.btn { display: inline-flex; align-items: center; text-decoration: none; }
   .btn.primary { background: var(--accent); color: #fff; }
   .btn.danger { background: #b4232a; color: #fff; }
   .btn:disabled { opacity: .5; cursor: default; }
@@ -499,7 +500,7 @@
     <form class="capedit" id="lbcapform" hidden><input type="text" id="lbcapinput" placeholder="Caption" maxlength="500">
       <button class="btn primary">Save</button><button class="btn" type="button" id="lbcapcancel">Cancel</button></form>
     <small id="lbdate"></small></div>
-  <div class="row"><button class="btn" id="lbgo">Show on map</button><button class="btn" id="lbedit" hidden>Caption</button><button class="btn" id="lbreplace" hidden>Replace</button><button class="btn danger" id="lbdelete" hidden>Delete</button></div>
+  <div class="row"><button class="btn" id="lbgo">Show on map</button><a class="btn" id="lbmaps" target="_blank" rel="noopener">Google Maps ↗</a><button class="btn" id="lbedit" hidden>Caption</button><button class="btn" id="lbreplace" hidden>Replace</button><button class="btn danger" id="lbdelete" hidden>Delete</button></div>
   <input type="file" id="replacefile" accept="image/*,video/*" hidden>
 </div>
 <div class="card uploader" id="uploader">
@@ -1217,10 +1218,20 @@ const fmtDate = (ts) => new Date(ts).toLocaleString([], { dateStyle: 'medium', t
 const pinIcon = (src, extra = '') => L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
   html: `<div class="pin ${extra}"><img src="${src}" alt=""></div>` });
 
+// Place names are looked up after the list has been sent, so while some are missing it is asked
+// for again a little later (until a few asks bring nothing new); pins are redrawn only when something changed.
+let photoKey = '', photoRetry = null, photoTries = 0;
 async function loadPhotos() {
+  let list;
   try {
-    photos = (await fetch('/api/photos').then((r) => r.json())).photos || [];
+    list = (await fetch('/api/photos').then((r) => r.json())).photos || [];
   } catch { return; }
+  const key = JSON.stringify(list), same = key === photoKey;
+  clearTimeout(photoRetry);
+  if (!same) photoTries = 0;
+  if (list.some((p) => p.place === null) && photoTries++ < 6) photoRetry = setTimeout(loadPhotos, 25000);
+  if (same) return;
+  photoKey = key; photos = list;
   Object.values(onMap).forEach((m) => m.clear());
   photos.forEach(knowPhoto);
   if (pk.items.length) pkMarks();
@@ -1272,11 +1283,14 @@ function showInLightbox(ph) {
     if (v.getAttribute('src')) { v.pause(); v.removeAttribute('src'); v.load(); }
     $('lbimg').src = `/photos/${ph.id}.jpg`;
   }
-  $('lbplace').innerHTML = ph.place ? `${PIN_ICON} ${esc(ph.place)}` : '';
+  // A pin not named yet borrows the name of one within 150 m.
+  const place = ph.place || (photos.find((x) => x.place && distM(x, ph) <= NEAR_M) || {}).place;
+  $('lbplace').innerHTML = place ? `${PIN_ICON} ${esc(place)}` : '';
+  $('lbmaps').href = `https://www.google.com/maps?q=${ph.lat.toFixed(5)},${ph.lon.toFixed(5)}`;
   const many = lb.group.length > 1;
   $('lbcount').textContent = many ? `${lb.i + 1} of ${lb.group.length} here` : '';
   $('lbprev').hidden = $('lbnext').hidden = !many;
-  $('lbplace').closest('.top').hidden = !ph.place && !many;
+  $('lbplace').closest('.top').hidden = !place && !many;
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = ph.taken_ts ? fmtDate(ph.taken_ts) : `Added ${fmtDate(ph.created_ts)}`;
   $('lbdelete').hidden = !me.admin;
