@@ -16,6 +16,15 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - name: Photo places (counts only)
+        run: |
+          r=$(npx wrangler d1 execute trolaspy --remote --json --command "SELECT (SELECT COUNT(*) FROM photos) photos,
+                (SELECT COUNT(*) FROM photos WHERE place IS NULL) unnamed, (SELECT COUNT(*) FROM photos WHERE place = '') nothing_to_name,
+                (SELECT COUNT(DISTINCT printf('%.3f,%.3f', lat, lon)) FROM photos WHERE place IS NULL) unnamed_spots,
+                (SELECT COUNT(*) FROM places) places, (SELECT COUNT(*) FROM places WHERE label IS NULL) places_nameless,
+                (SELECT COUNT(*) FROM places WHERE ts > (strftime('%s','now') - 7200) * 1000) places_last_2h,
+                (SELECT ROUND((strftime('%s','now') * 1000 - MAX(ts)) / 60000.0) FROM places) last_lookup_min_ago")
+          echo "::notice title=Photo places::$(echo "$r" | jq -c '.[0].results[0] // .')"
       - name: Query
         run: |
           q() { echo "== $1"; npx wrangler d1 execute trolaspy --remote --json --command "$2" | jq -c '.[0].results[]'; }
