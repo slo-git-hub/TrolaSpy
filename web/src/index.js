@@ -120,7 +120,7 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     if (url.pathname === '/api/me') return json({ email: viewer.email, admin, photos: !!env.PHOTOS });
-    if (url.pathname === '/api/photos' && method === 'GET') return listPhotos(env);
+    if (url.pathname === '/api/photos' && method === 'GET') return listPhotos(env, admin);
     if (url.pathname.startsWith('/photos/') && method === 'GET') {
       const key = url.pathname.slice('/photos/'.length);
       if (!/^[0-9a-f-]{36}((_t)?\.jpg|\.mp4)$/.test(key)) return new Response('Not found', { status: 404 });

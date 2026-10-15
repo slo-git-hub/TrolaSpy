@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS photos (
   height     INTEGER,
   created_ts INTEGER NOT NULL,
   created_by TEXT,
-  duration   REAL      -- seconds, for a video; NULL for a photo
+  duration   REAL,     -- seconds, for a video; NULL for a photo
+  orig_name  TEXT,     -- the original file's name and size, to spot it if it is added again
+  orig_size  INTEGER
 );
 
 -- Finished charging sessions, copied from readings daily so they are kept after 30 days.

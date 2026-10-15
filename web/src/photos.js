@@ -12,9 +12,11 @@ const json = (data, status = 200) =>
 
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
-export async function listPhotos(env) {
+// The admin also gets each original file's name and size, so the page can tell what is on the map already.
+export async function listPhotos(env, admin = false) {
   const { results } = await env.DB.prepare(
-    'SELECT id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts FROM photos ORDER BY COALESCE(taken_ts, created_ts) DESC LIMIT 2000'
+    `SELECT id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts${admin ? ', orig_name, orig_size' : ''}
+     FROM photos ORDER BY COALESCE(taken_ts, created_ts) DESC LIMIT 2000`
   ).all();
   return json({ photos: results });
 }
@@ -61,7 +63,8 @@ function readFiles(form) {
     if (video.size > MAX_VIDEO_BYTES) return { error: 'Video too large.', status: 413 };
     if (duration === null || duration <= 0 || duration > MAX_VIDEO_S) return { error: 'Videos can be up to 3 minutes.', status: 400 };
   }
-  return { image, thumb, video, duration: video ? duration : null, width: num(form.get('width')), height: num(form.get('height')) };
+  return { image, thumb, video, duration: video ? duration : null, width: num(form.get('width')), height: num(form.get('height')),
+    orig_name: String(form.get('orig_name') || '').slice(0, 255) || null, orig_size: num(form.get('orig_size')) };
 }
 
 async function putFiles(env, id, f) {
@@ -71,8 +74,8 @@ async function putFiles(env, id, f) {
 }
 
 const insertRow = (env, r) => env.DB.prepare(
-  'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-).bind(r.id, r.taken_ts, r.lat, r.lon, r.source, r.caption, r.width, r.height, r.duration, r.created_ts, r.created_by);
+  'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, created_by, orig_name, orig_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+).bind(r.id, r.taken_ts, r.lat, r.lon, r.source, r.caption, r.width, r.height, r.duration, r.created_ts, r.created_by, r.orig_name ?? null, r.orig_size ?? null);
 const filesOf = (id) => [`photos/${id}.jpg`, `photos/${id}_t.jpg`, `photos/${id}.mp4`];
 
 export async function uploadPhoto(request, env, viewer) {
@@ -91,6 +94,7 @@ export async function uploadPhoto(request, env, viewer) {
   const row = {
     id, taken_ts: num(form.get('taken_ts')), lat, lon, source, caption,
     width: f.width, height: f.height, duration: f.duration, created_ts: Date.now(), created_by: viewer.email,
+    orig_name: f.orig_name, orig_size: f.orig_size,
   };
   await insertRow(env, row).run();
   delete row.created_by;
@@ -108,7 +112,8 @@ export async function replacePhoto(request, env, id) {
   const f = readFiles(form);
   if (f.error) return json({ error: f.error }, f.status);
 
-  const row = { ...old, id: crypto.randomUUID(), taken_ts: num(form.get('taken_ts')) ?? old.taken_ts, width: f.width, height: f.height, duration: f.duration };
+  const row = { ...old, id: crypto.randomUUID(), taken_ts: num(form.get('taken_ts')) ?? old.taken_ts, width: f.width, height: f.height, duration: f.duration,
+    orig_name: f.orig_name, orig_size: f.orig_size };
   await putFiles(env, row.id, f);
   await env.DB.batch([insertRow(env, row), env.DB.prepare('DELETE FROM photos WHERE id = ?').bind(id)]);
   await env.PHOTOS.delete(filesOf(id));

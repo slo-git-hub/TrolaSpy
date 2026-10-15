@@ -81,7 +81,9 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   folders on the page) and its photos show large, by day, with checkmarks; days Trola drove
   are marked (`/api/drove`), and videos can be hidden. Phones use their own photo picker. With
   several queued, Add all adds each one where it was placed and leaves those without a place for
-  the end, to tap on the map. In the viewer the admin can
+  the end, to tap on the map. A pin keeps its original file's name and size (`photos.orig_name`,
+  `orig_size`, shown to the admin only), so a photo already on the map is marked in the picker and
+  passed over by Add all; it can still be added again by hand. In the viewer the admin can
   replace a pin's photo or video (it keeps its place and caption, under a new id) or delete it.
 - **Video pins** – videos go through the same flow. The browser shrinks them first with
   [Mediabunny](https://mediabunny.dev) (served by the web Worker from `node_modules`, loaded only

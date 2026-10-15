@@ -1193,12 +1193,28 @@ async function loadPhotos() {
   try {
     photos = (await fetch('/api/photos').then((r) => r.json())).photos || [];
   } catch { return; }
+  Object.values(onMap).forEach((m) => m.clear());
+  photos.forEach(knowPhoto);
+  if (pk.items.length) pkMarks();
   photoLayer.clearLayers();
   for (const ph of photos) {
     L.marker([ph.lat, ph.lon], { icon: pinIcon(`/photos/${ph.id}_t.jpg`, ph.duration ? 'vid' : ''), zIndexOffset: -100 })
       .on('click', () => openLightbox(ph)).addTo(photoLayer);
   }
 }
+
+// What is on the map already, to spot a photo or video added again: by the original file's name
+// and size, or its size and the time it was taken. Pins from before names were kept: by time alone.
+const onMap = { name: new Map(), taken: new Map(), old: new Map() };
+function knowPhoto(ph) {
+  if (ph.orig_size) {
+    if (ph.orig_name) onMap.name.set(`${ph.orig_name}|${ph.orig_size}`, ph);
+    if (ph.taken_ts) onMap.taken.set(`${ph.orig_size}|${ph.taken_ts}`, ph);
+  } else if (ph.taken_ts) onMap.old.set(`${ph.taken_ts}|${ph.duration ? 1 : 0}`, ph);
+}
+// The pin a file is on already, or undefined. `taken` (the file's own time) is known once it is read.
+const pinOf = (f, taken = null) => onMap.name.get(`${f.name}|${f.size}`)
+  || (taken ? onMap.taken.get(`${f.size}|${taken}`) || onMap.old.get(`${taken}|${isVideo(f) ? 1 : 0}`) : undefined);
 
 function openLightbox(ph) {
   lbPhoto = ph;
@@ -1290,6 +1306,7 @@ $('replacefile').addEventListener('change', async (e) => {
     fd.append('image', new File([big.blob], 'photo.jpg', { type: 'image/jpeg' }));
     fd.append('thumb', new File([small.blob], 'thumb.jpg', { type: 'image/jpeg' }));
     fd.append('width', big.width); fd.append('height', big.height);
+    fd.append('orig_name', file.name); fd.append('orig_size', file.size);
     if (taken) fd.append('taken_ts', taken);
     const r = await fetch(`/api/photos/${ph.id}/replace`, { method: 'POST', body: fd });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
@@ -1363,8 +1380,10 @@ async function locate(file) {
     : 'No location in photo · tap the map where it was taken' };
 }
 
-// auto: "Add all" is adding the queue without stopping; later: files it found no place for.
-const up = { queue: [], i: 0, cur: null, marker: null, busy: false, auto: false, later: [] };
+// auto: "Add all" is adding the queue without stopping; later: files it found no place for;
+// dups: how many it passed over because they are on the map already.
+const up = { queue: [], i: 0, cur: null, marker: null, busy: false, auto: false, later: [], dups: 0 };
+const upLabel = () => { $('upsave').textContent = up.cur && up.cur.dup ? 'Add again' : 'Add to map'; };
 
 function setStaging(lat, lon) {
   up.cur.lat = lat; up.cur.lon = lon;
@@ -1382,6 +1401,7 @@ function setStaging(lat, lon) {
 function upProgress() {
   const c = up.cur, parts = [], left = up.queue.length - up.i;
   if (up.queue.length > 1) parts.push(`${up.i + 1} of ${up.queue.length}`);
+  if (up.dups) parts.push(`${up.dups} already on the map`);
   if (up.later.length) parts.push(`${up.later.length} to place by hand`);
   $('upall').hidden = !up.auto && left < 2;
   $('upall').textContent = up.auto ? 'Stop' : `Add all ${left}`;
@@ -1399,7 +1419,7 @@ async function nextUpload() {
     // "Add all" is through: now the ones without a place, to tap on the map one by one.
     up.queue = up.later; up.later = []; up.i = 0; up.auto = false;
   }
-  if (up.i >= up.queue.length) { $('uploader').classList.remove('open'); up.cur = null; up.auto = false; upProgress(); loadPhotos(); return; }
+  if (up.i >= up.queue.length) { $('uploader').classList.remove('open'); up.cur = null; up.auto = false; up.dups = 0; upProgress(); loadPhotos(); return; }
   const file = up.queue[up.i];
   $('uploader').classList.add('open');
   const video = isVideo(file);
@@ -1425,10 +1445,15 @@ async function nextUpload() {
     up.cur = null;
     return;
   }
-  upProgress();
+  const dup = pinOf(file, up.cur.taken);
+  if (dup) {
+    up.cur.dup = dup;
+    up.cur.note = `Already on the map, added ${fmtDate(dup.created_ts)} · Skip it, or add it again`;
+  }
+  upProgress(); upLabel();
   $('upthumb').src = up.cur.thumbUrl;
   $('upwhere').textContent = up.cur.note;
-  $('upwhere').classList.toggle('need', up.cur.lat === null);
+  $('upwhere').classList.toggle('need', up.cur.lat === null || !!dup);
   scrollTo({ top: 0, behavior: 'smooth' });
   if (up.cur.lat !== null) {
     setStaging(up.cur.lat, up.cur.lon);
@@ -1456,13 +1481,17 @@ $('photofile').addEventListener('change', (e) => {
 $('upskip').addEventListener('click', () => { up.i++; nextUpload(); });
 // Add all: adds each photo and video in the queue where it was placed (from the photo, or where
 // Trola was when it was taken); those without a place wait until the end, to be placed by hand.
+// Ones on the map already are passed over.
 $('upall').addEventListener('click', async () => {
   if (up.auto) { up.auto = false; upProgress(); return; } // Stop: after the one being added
   if (up.busy) return;
   up.auto = true; upProgress();
   while (up.auto && up.i < up.queue.length) {
     const c = up.cur; // null: couldn't be read, so it is skipped
-    if (!c || c.lat === null) { if (c) up.later.push(up.queue[up.i]); up.i++; await nextUpload(); continue; }
+    if (!c || c.lat === null || c.dup) {
+      if (c && c.dup) up.dups++; else if (c) up.later.push(up.queue[up.i]);
+      up.i++; await nextUpload(); continue;
+    }
     if (!(await saveUpload())) break;
   }
   up.auto = false; upProgress();
@@ -1488,21 +1517,21 @@ async function saveUpload() {
     if (c.taken) fd.append('taken_ts', c.taken);
     fd.append('width', c.big.width); fd.append('height', c.big.height);
     fd.append('caption', $('upcaption').value.trim());
+    fd.append('orig_name', up.queue[up.i].name); fd.append('orig_size', up.queue[up.i].size);
     const r = await fetch('/api/photos', { method: 'POST', body: fd });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
-    uploaded.add(up.queue[up.i]);
-    up.i++;
-    up.busy = false;
-    await nextUpload();
-    return true;
+    knowPhoto((await r.json()).photo);
   } catch (err) {
     $('upwhere').className = 'where need';
     $('upwhere').textContent = `Upload failed: ${err.message}`;
     $('upsave').disabled = false;
     return false;
   } finally {
-    up.busy = false; $('upsave').textContent = 'Add to map';
+    up.busy = false; upLabel();
   }
+  up.i++;
+  await nextUpload();
+  return true;
 }
 
 // ---------- Videos ----------
@@ -1611,7 +1640,6 @@ function videoThumb(file, max = 480) {
 // A web page only sees files handed to it: a chosen folder, chosen photos, or ones dropped on it.
 // Nothing leaves the computer until a photo is added to the map.
 const pk = { items: [], last: -1, drove: new Map(), queue: [], loading: 0, obs: null, prev: -1, prevUrl: null };
-const uploaded = new WeakSet(); // files added to the map this visit
 // "Hide videos" leaves videos out of the picker (remembered on this computer).
 try { pk.noVid = localStorage.getItem('pknovid') === '1'; } catch {}
 const pkShown = (it) => !(pk.noVid && isVideo(it.file));
@@ -1656,7 +1684,7 @@ function pkTile(it, i) {
     + (it.thumb ? `<img src="${it.thumb}" alt="">` : `<span class="nm">${it.failed ? 'No preview · ' : ''}${esc(it.file.name)}</span>`)
     + `<span class="ck"></span><button class="zoom" aria-label="Look closer">${ZOOM}</button><span class="tm">${time}</span>`
     + (isVideo(it.file) ? `<span class="dur">▶${it.dur ? ` ${fmtDur(it.dur)}` : ''}</span>` : '')
-    + `${uploaded.has(it.file) ? '<span class="done">On map</span>' : ''}</div>`;
+    + `${pinOf(it.file) ? '<span class="done">On map</span>' : ''}</div>`;
 }
 
 function pkRender() {
@@ -1713,17 +1741,22 @@ function pkSet(i, on) {
   const it = pk.items[i]; it.on = on;
   if (it.el) { it.el.classList.toggle('on', on); it.el.setAttribute('aria-checked', on); }
 }
+// A day's photos for Select all: those not on the map yet (all of them if every one is).
+function pkDayIdx(sec) {
+  const idx = [...sec.querySelectorAll('.pk-tile')].map((t) => +t.dataset.i), fresh = idx.filter((i) => !pinOf(pk.items[i].file));
+  return fresh.length ? fresh : idx;
+}
 const pkVisible = (i) => pkShown(pk.items[i]) && !(pk.items[i].el && pk.items[i].el.closest('.pk-day').hidden);
 function pkCount() {
-  const n = pk.items.filter((it) => it.on).length, shown = pk.items.filter(pkShown).length, hid = pk.items.length - shown;
-  $('pk-count').textContent = pk.items.length ? `${n ? `${n} selected · ` : ''}${shown.toLocaleString()} photo${shown !== 1 ? 's' : ''}`
-    + (hid ? ` · ${hid.toLocaleString()} video${hid > 1 ? 's' : ''} hidden` : '') : '';
+  const n = pk.items.filter((it) => it.on).length, shown = pk.items.filter(pkShown), hid = pk.items.length - shown.length;
+  const done = shown.filter((it) => pinOf(it.file)).length;
+  $('pk-count').textContent = pk.items.length ? `${n ? `${n} selected · ` : ''}${shown.length.toLocaleString()} photo${shown.length !== 1 ? 's' : ''}`
+    + (done ? ` · ${done.toLocaleString()} on the map` : '') + (hid ? ` · ${hid.toLocaleString()} video${hid > 1 ? 's' : ''} hidden` : '') : '';
   $('pk-clear').hidden = !n;
   $('pk-add').disabled = !n;
   $('pk-add').textContent = n ? `Add ${n} to map` : 'Add to map';
   document.querySelectorAll('.pk-day').forEach((sec) => {
-    const tiles = [...sec.querySelectorAll('.pk-tile')];
-    sec.querySelector('[data-sel]').textContent = tiles.every((t) => pk.items[t.dataset.i].on) ? 'Clear' : 'Select all';
+    sec.querySelector('[data-sel]').textContent = pkDayIdx(sec).every((i) => pk.items[i].on) ? 'Clear' : 'Select all';
   });
 }
 
@@ -1752,9 +1785,17 @@ function pkOpen() {
   $('picker').classList.add('open');
   document.documentElement.style.overflow = 'hidden';
   if (!pk.shown) { pk.shown = true; pkRender(); return; }
+  pkMarks();
+}
+// "On map" on the photos that are, as pins come and go.
+function pkMarks() {
   for (const it of pk.items) {
-    if (it.el && uploaded.has(it.file) && !it.el.querySelector('.done')) it.el.insertAdjacentHTML('beforeend', '<span class="done">On map</span>');
+    if (!it.el) continue;
+    const done = it.el.querySelector('.done'), on = !!pinOf(it.file);
+    if (on && !done) it.el.insertAdjacentHTML('beforeend', '<span class="done">On map</span>');
+    else if (!on && done) done.remove();
   }
+  pkCount();
 }
 function pkClose() {
   $('picker').classList.remove('open', 'drag');
@@ -1788,7 +1829,7 @@ $('pk-add').addEventListener('click', () => {
 $('pk-body').addEventListener('click', (e) => {
   const sel = e.target.closest('[data-sel]');
   if (sel) {
-    const idx = [...sel.closest('.pk-day').querySelectorAll('.pk-tile')].map((t) => +t.dataset.i);
+    const idx = pkDayIdx(sel.closest('.pk-day'));
     const on = !idx.every((i) => pk.items[i].on);
     idx.forEach((i) => pkSet(i, on)); pkCount(); return;
   }

@@ -69,6 +69,8 @@ jobs:
             fi
           }
           add_column photos duration REAL
+          add_column photos orig_name TEXT
+          add_column photos orig_size INTEGER
           add_column daily max_regen_kw REAL
 
       - name: Create the photo bucket (R2)
