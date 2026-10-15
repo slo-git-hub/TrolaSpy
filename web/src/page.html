@@ -308,7 +308,7 @@
     font: inherit; background: rgba(255,255,255,.1); color: #fff; }
   .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
 
-  .uploader { position: fixed; z-index: 1500; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(440px, calc(100% - 24px));
+  .uploader { position: fixed; z-index: 1500; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(500px, calc(100% - 24px));
     display: none; gap: 12px; align-items: flex-start; }
   .uploader.open { display: flex; }
   .uploader > img { width: 72px; height: 72px; border-radius: 12px; object-fit: cover; flex: none; }
@@ -317,7 +317,7 @@
   .uploader .where.need { color: var(--charge); font-weight: 600; }
   .uploader input[type=text] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: inherit;
     background: var(--solid); color: var(--text); }
-  .uploader .row { display: flex; gap: 6px; align-items: center; }
+  .uploader .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .uploader .count { margin-left: auto; font-size: 12px; color: var(--faint); }
   /* Photo picker: a folder's photos, large, by day, with checkmarks. */
   .picker { position: fixed; inset: 0; z-index: 1800; background: var(--bg); display: none; flex-direction: column; --pk: 200px; }
@@ -446,6 +446,7 @@
     <button class="btn" id="pk-folder">Choose a folder</button>
     <button class="btn" id="pk-files">Choose photos</button>
     <label id="pk-drovelabel" hidden><input type="checkbox" id="pk-drove"> Only days Trola drove</label>
+    <label id="pk-novidlabel" hidden><input type="checkbox" id="pk-novid"> Hide videos</label>
     <label>Size <input type="range" id="pk-size" min="120" max="400" step="20" value="200"></label>
     <button class="btn" id="pk-close" aria-label="Close">✕</button>
   </div>
@@ -482,6 +483,7 @@
     <div class="row">
       <button class="btn primary" id="upsave">Add to map</button>
       <button class="btn" id="upskip">Skip</button>
+      <button class="btn" id="upall" hidden>Add all</button>
       <span class="count" id="upcount"></span>
     </div>
   </div>
@@ -1361,7 +1363,8 @@ async function locate(file) {
     : 'No location in photo · tap the map where it was taken' };
 }
 
-const up = { queue: [], i: 0, cur: null, marker: null, busy: false };
+// auto: "Add all" is adding the queue without stopping; later: files it found no place for.
+const up = { queue: [], i: 0, cur: null, marker: null, busy: false, auto: false, later: [] };
 
 function setStaging(lat, lon) {
   up.cur.lat = lat; up.cur.lon = lon;
@@ -1377,8 +1380,12 @@ function setStaging(lat, lon) {
 
 // Queue line: "2 of 5", and how far shrinking the current video has got.
 function upProgress() {
-  const c = up.cur, parts = [];
+  const c = up.cur, parts = [], left = up.queue.length - up.i;
   if (up.queue.length > 1) parts.push(`${up.i + 1} of ${up.queue.length}`);
+  if (up.later.length) parts.push(`${up.later.length} to place by hand`);
+  $('upall').hidden = !up.auto && left < 2;
+  $('upall').textContent = up.auto ? 'Stop' : `Add all ${left}`;
+  $('upskip').hidden = up.auto;
   if (c && c.video && c.progress < 1) parts.push(`shrinking video ${Math.round(c.progress * 100)}%`);
   $('upcount').textContent = parts.join(' · ');
   if (c && c.video && up.busy && c.progress < 1) $('upsave').textContent = `Shrinking… ${Math.round(c.progress * 100)}%`;
@@ -1388,7 +1395,11 @@ async function nextUpload() {
   if (up.marker) { up.marker.remove(); up.marker = null; }
   if (up.cur && up.cur.thumbUrl) URL.revokeObjectURL(up.cur.thumbUrl);
   if (up.cur && up.cur.conv) up.cur.conv.cancel().catch(() => {});
-  if (up.i >= up.queue.length) { $('uploader').classList.remove('open'); up.cur = null; loadPhotos(); return; }
+  if (up.i >= up.queue.length && up.later.length) {
+    // "Add all" is through: now the ones without a place, to tap on the map one by one.
+    up.queue = up.later; up.later = []; up.i = 0; up.auto = false;
+  }
+  if (up.i >= up.queue.length) { $('uploader').classList.remove('open'); up.cur = null; up.auto = false; upProgress(); loadPhotos(); return; }
   const file = up.queue[up.i];
   $('uploader').classList.add('open');
   const video = isVideo(file);
@@ -1443,9 +1454,24 @@ $('photofile').addEventListener('change', (e) => {
   if (up.queue.length) nextUpload();
 });
 $('upskip').addEventListener('click', () => { up.i++; nextUpload(); });
-$('upsave').addEventListener('click', async () => {
+// Add all: adds each photo and video in the queue where it was placed (from the photo, or where
+// Trola was when it was taken); those without a place wait until the end, to be placed by hand.
+$('upall').addEventListener('click', async () => {
+  if (up.auto) { up.auto = false; upProgress(); return; } // Stop: after the one being added
+  if (up.busy) return;
+  up.auto = true; upProgress();
+  while (up.auto && up.i < up.queue.length) {
+    const c = up.cur; // null: couldn't be read, so it is skipped
+    if (!c || c.lat === null) { if (c) up.later.push(up.queue[up.i]); up.i++; await nextUpload(); continue; }
+    if (!(await saveUpload())) break;
+  }
+  up.auto = false; upProgress();
+});
+$('upsave').addEventListener('click', () => saveUpload());
+// Adds the photo or video on show, then shows the next. False if it couldn't be added.
+async function saveUpload() {
   const c = up.cur;
-  if (!c || c.lat === null || up.busy) return;
+  if (!c || c.lat === null || up.busy) return false;
   up.busy = true; $('upsave').disabled = true; $('upsave').textContent = 'Uploading…';
   const fd = new FormData();
   try {
@@ -1466,15 +1492,18 @@ $('upsave').addEventListener('click', async () => {
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
     uploaded.add(up.queue[up.i]);
     up.i++;
+    up.busy = false;
     await nextUpload();
+    return true;
   } catch (err) {
     $('upwhere').className = 'where need';
     $('upwhere').textContent = `Upload failed: ${err.message}`;
     $('upsave').disabled = false;
+    return false;
   } finally {
     up.busy = false; $('upsave').textContent = 'Add to map';
   }
-});
+}
 
 // ---------- Videos ----------
 // Shrunk in the browser before upload (Mediabunny, with the browser's own video encoder): 720p,
@@ -1583,6 +1612,9 @@ function videoThumb(file, max = 480) {
 // Nothing leaves the computer until a photo is added to the map.
 const pk = { items: [], last: -1, drove: new Map(), queue: [], loading: 0, obs: null, prev: -1, prevUrl: null };
 const uploaded = new WeakSet(); // files added to the map this visit
+// "Hide videos" leaves videos out of the picker (remembered on this computer).
+try { pk.noVid = localStorage.getItem('pknovid') === '1'; } catch {}
+const pkShown = (it) => !(pk.noVid && isVideo(it.file));
 // Photos a browser can show, and videos. RAW files (DNG, CR2, NEF, ARW…) are left out: browsers
 // can't show them, and the camera usually saves a JPEG of the same shot next to them.
 const IMAGE_RE = /\.(jpe?g|png|webp|gif|heic|heif|avif)$/i, IMAGE_TYPE_RE = /^image\/(jpeg|png|webp|gif|heic|heif|avif)$/;
@@ -1610,7 +1642,7 @@ function pkAdd(files, checked, replace = false) {
   for (const f of files) {
     if (!isMedia(f) || seen.has(key(f))) continue;
     seen.add(key(f));
-    pk.items.push({ file: f, t: fileTime(f), on: !!checked, thumb: null });
+    pk.items.push({ file: f, t: fileTime(f), on: !!checked && !(pk.noVid && isVideo(f)), thumb: null });
   }
   pk.items.sort((a, b) => b.t - a.t);
   pk.last = -1;
@@ -1628,15 +1660,18 @@ function pkTile(it, i) {
 }
 
 function pkRender() {
-  const body = $('pk-body');
+  const body = $('pk-body'), top = body.scrollTop;
   if (pk.obs) pk.obs.disconnect();
+  pk.items.forEach((it) => { it.el = null; });
+  $('pk-novid').checked = !!pk.noVid;
+  $('pk-novidlabel').hidden = !pk.items.some((it) => isVideo(it.file));
   if (!pk.items.length) {
     body.innerHTML = `<div class="pk-empty"><b>Choose a folder, or drag photos, videos or a folder here</b>For example your pCloud camera uploads.
       They show here large and by day, so you can tick the ones for the map. They stay on this computer until you add them.</div>`;
     pkCount(); return;
   }
   const days = new Map();
-  pk.items.forEach((it, i) => { const k = localDay(it.t); if (!days.has(k)) days.set(k, []); days.get(k).push(i); });
+  pk.items.forEach((it, i) => { if (!pkShown(it)) return; const k = localDay(it.t); if (!days.has(k)) days.set(k, []); days.get(k).push(i); });
   body.innerHTML = [...days].map(([k, idx]) => `<section class="pk-day" data-day="${k}"><h3>${longDay(k)}<span class="tag" hidden></span>`
     + `<span class="n">${idx.length}</span><button data-sel="${k}">Select all</button></h3>`
     + `<div class="pk-grid">${idx.map((i) => pkTile(pk.items[i], i)).join('')}</div></section>`).join('');
@@ -1648,6 +1683,7 @@ function pkRender() {
   }), { root: body, rootMargin: '600px 0px' });
   body.querySelectorAll('.pk-tile').forEach((el) => { pk.items[el.dataset.i].el = el; pk.obs.observe(el); });
   pkDrove(); pkCount();
+  body.scrollTop = top;
 }
 
 function pkWant(it) {
@@ -1677,10 +1713,11 @@ function pkSet(i, on) {
   const it = pk.items[i]; it.on = on;
   if (it.el) { it.el.classList.toggle('on', on); it.el.setAttribute('aria-checked', on); }
 }
-const pkVisible = (i) => !(pk.items[i].el && pk.items[i].el.closest('.pk-day').hidden);
+const pkVisible = (i) => pkShown(pk.items[i]) && !(pk.items[i].el && pk.items[i].el.closest('.pk-day').hidden);
 function pkCount() {
-  const n = pk.items.filter((it) => it.on).length;
-  $('pk-count').textContent = pk.items.length ? `${n ? `${n} selected · ` : ''}${pk.items.length.toLocaleString()} photo${pk.items.length > 1 ? 's' : ''}` : '';
+  const n = pk.items.filter((it) => it.on).length, shown = pk.items.filter(pkShown).length, hid = pk.items.length - shown;
+  $('pk-count').textContent = pk.items.length ? `${n ? `${n} selected · ` : ''}${shown.toLocaleString()} photo${shown !== 1 ? 's' : ''}`
+    + (hid ? ` · ${hid.toLocaleString()} video${hid > 1 ? 's' : ''} hidden` : '') : '';
   $('pk-clear').hidden = !n;
   $('pk-add').disabled = !n;
   $('pk-add').textContent = n ? `Add ${n} to map` : 'Add to map';
@@ -1726,13 +1763,20 @@ function pkClose() {
 
 $('pk-close').addEventListener('click', pkClose);
 $('pk-folder').addEventListener('click', () => $('pk-dirinput').click());
-$('pk-files').addEventListener('click', () => $('photofile').click());
+$('pk-files').addEventListener('click', () => { $('photofile').accept = pk.noVid ? 'image/*' : 'image/*,video/*'; $('photofile').click(); });
 $('pk-dirinput').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) pkAdd(files, false, true); });
 $('pk-size').addEventListener('input', (e) => $('picker').style.setProperty('--pk', `${e.target.value}px`));
 $('pk-drove').addEventListener('change', pkDrove);
+$('pk-novid').addEventListener('change', (e) => {
+  pk.noVid = e.target.checked;
+  try { localStorage.setItem('pknovid', pk.noVid ? '1' : '0'); } catch {}
+  if (pk.noVid) pk.items.forEach((it) => { if (isVideo(it.file)) it.on = false; });
+  pk.last = -1;
+  pkRender();
+});
 $('pk-clear').addEventListener('click', () => { pk.items.forEach((it, i) => it.on && pkSet(i, false)); pkCount(); });
 $('pk-add').addEventListener('click', () => {
-  const chosen = pk.items.map((it, i) => [it, i]).filter(([it]) => it.on);
+  const chosen = pk.items.map((it, i) => [it, i]).filter(([it]) => it.on && pkShown(it));
   if (!chosen.length) return;
   chosen.forEach(([, i]) => pkSet(i, false)); pkCount();
   pkClose();

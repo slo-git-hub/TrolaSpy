@@ -79,7 +79,9 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   to ~2000px plus a thumbnail, and the Worker stores them in R2 (`trolaspy-photos`).
   On a computer, Add photo opens TrolaSpy's own picker: choose a folder (or drop photos or
   folders on the page) and its photos show large, by day, with checkmarks; days Trola drove
-  are marked (`/api/drove`). Phones use their own photo picker. In the viewer the admin can
+  are marked (`/api/drove`), and videos can be hidden. Phones use their own photo picker. With
+  several queued, Add all adds each one where it was placed and leaves those without a place for
+  the end, to tap on the map. In the viewer the admin can
   replace a pin's photo or video (it keeps its place and caption, under a new id) or delete it.
 - **Video pins** – videos go through the same flow. The browser shrinks them first with
   [Mediabunny](https://mediabunny.dev) (served by the web Worker from `node_modules`, loaded only
