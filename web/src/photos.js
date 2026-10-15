@@ -1,8 +1,9 @@
 // Photo and video pins: list, serve, upload, replace, caption and delete. Files are stored in R2 (binding
 // PHOTOS), metadata in D1. The browser shrinks photos and videos and makes the thumbnail (for a
 // video also a full-size frame) before uploading.
-import { placeNames, cellOf } from '../../shared/places.js';
-import { distM, NEAR_M } from '../../shared/stays.js';
+import { namePhotos } from '../../shared/places.js';
+
+export { namePhotos };
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 90 * 1024 * 1024; // 3 minutes at 720p is about 40 MB
@@ -23,39 +24,6 @@ export async function listPhotos(env, admin = false, later = null) {
   ).all();
   if (later && results.some((p) => p.place === null)) later(namePhotos(env));
   return json({ photos: results });
-}
-
-// Gives pins without a place name one, from OpenStreetMap (shared/places.js): first spots looked up
-// before (for any pin, charger or stay), then the name of a named pin within 150 m (photos taken
-// around one place share it), and at most `max` new lookups a run, a second apart, as Nominatim
-// asks. Older pins get theirs over a few page loads.
-let naming = null;
-export function namePhotos(env, { max = 20, fetchFn, gap } = {}) {
-  naming ||= (async () => {
-    const { results: all } = await env.DB.prepare('SELECT id, lat, lon, place FROM photos').all();
-    const todo = all.filter((p) => p.place === null);
-    if (!todo.length) return;
-    const known = all.filter((p) => p.place), found = new Map(); // id → place
-    const take = (names) => {
-      for (const p of todo) {
-        const n = !found.has(p.id) && names.get(cellOf(p));
-        if (n) { found.set(p.id, n.label || ''); if (n.label) known.push({ ...p, place: n.label }); }
-      }
-      for (const p of todo) {
-        const k = !found.has(p.id) && known.find((x) => distM(x, p) <= NEAR_M);
-        if (k) found.set(p.id, k.place);
-      }
-    };
-    const opts = { more: 0, base: env.NOMINATIM_URL || undefined, fetchFn, gap };
-    take(await placeNames(env.DB, todo, { ...opts, max: 0 }));
-    const rest = todo.filter((p) => !found.has(p.id));
-    if (rest.length) take(await placeNames(env.DB, rest, { ...opts, max }));
-    const rows = [...found];
-    for (let i = 0; i < rows.length; i += 50) {
-      await env.DB.batch(rows.slice(i, i + 50).map(([id, place]) => env.DB.prepare('UPDATE photos SET place = ? WHERE id = ?').bind(place, id)));
-    }
-  })().catch(() => {}).finally(() => { naming = null; });
-  return naming;
 }
 
 // Videos are served in parts (HTTP Range) so they can start playing and skip ahead.

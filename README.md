@@ -86,9 +86,10 @@ you (browser) ──▶ Cloudflare Access (email code) ──▶ trolaspy Worker
   passed over by Add all; it can still be added again by hand. In the viewer the admin can
   replace a pin's photo or video (it keeps its place and caption, under a new id) or delete it.
   The viewer shows where a photo was taken (`photos.place`, named from OpenStreetMap like the
-  ChatGPT tools' spots: new pins right after upload, older ones up to 20 spots per page load; pins
-  within 150 m of a named one take its name without asking, and the page asks for the list again
-  while names are missing) above it and the caption below; when other photos were taken at the same
+  ChatGPT tools' spots: new pins right after upload, any still missing every 10 minutes from the
+  ingest Worker's cron or on a page load, each name kept as soon as it is found; pins within 150 m
+  of a named one take its name without asking, and the page asks for the list again while names
+  are missing) above it and the caption below; when other photos were taken at the same
   spot, or their pins overlap at the zoom shown, ‹ › (arrow keys, or a swipe) step through them
   oldest first. "Google Maps ↗" opens the photo's spot there. The public page does too.
 - **Video pins** – videos go through the same flow. The browser shrinks them first with

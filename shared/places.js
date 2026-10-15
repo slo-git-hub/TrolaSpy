@@ -2,6 +2,8 @@
 // Each spot, rounded to about 100 m, is looked up once and kept in the `places` table: Nominatim
 // asks for at most one request a second, an application User-Agent, and caching.
 // https://operations.osmfoundation.org/policies/nominatim/
+import { distM, NEAR_M } from './stays.js';
+
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const USER_AGENT = 'TrolaSpy/1.0 (+https://github.com/slo-git-hub/TrolaSpy)';
 const GAP_MS = 1100; // between lookups
@@ -61,4 +63,51 @@ export async function placeNames(db, spots, { max = 3, more = 8, later = null, b
   await lookUp(missing.slice(0, max));
   if (later && missing.length > max) later(new Promise((r) => setTimeout(r, gap)).then(() => lookUp(missing.slice(max, max + more))).catch(() => {}));
   return names;
+}
+
+// Gives photo pins without a place name one: first from spots looked up before (for any pin,
+// charger or stay), or from a named pin within 150 m (photos taken around one place share it);
+// then new spots one at a time, a second apart as Nominatim asks, each name kept as soon as it is
+// found and shared with the pins around it. Stops after `max` lookups or `budgetMs`, well inside
+// the 30 s a Worker may carry on after answering; the rest get theirs next run (the ingest cron
+// every 10 minutes, or a page load).
+let naming = null;
+export function namePhotos(env, { max = 20, budgetMs = 20000, fetchFn, gap = GAP_MS } = {}) {
+  naming ||= (async () => {
+    const until = Date.now() + budgetMs;
+    const { results: all } = await env.DB.prepare('SELECT id, lat, lon, place FROM photos').all();
+    const todo = all.filter((p) => p.place === null);
+    if (!todo.length) return;
+    const known = all.filter((p) => p.place), found = new Map(), saved = new Set(); // id → place
+    const take = (names) => {
+      for (const p of todo) {
+        const n = !found.has(p.id) && names.get(cellOf(p));
+        if (n) { found.set(p.id, n.label || ''); if (n.label) known.push({ ...p, place: n.label }); }
+      }
+      for (const p of todo) {
+        const k = !found.has(p.id) && known.find((x) => distM(x, p) <= NEAR_M);
+        if (k) found.set(p.id, k.place);
+      }
+    };
+    const save = async () => {
+      const rows = [...found].filter(([id]) => !saved.has(id));
+      for (let i = 0; i < rows.length; i += 50) {
+        await env.DB.batch(rows.slice(i, i + 50).map(([id, place]) => env.DB.prepare('UPDATE photos SET place = ? WHERE id = ?').bind(place, id)));
+      }
+      rows.forEach(([id]) => saved.add(id));
+    };
+    const opts = { more: 0, base: env.NOMINATIM_URL || undefined, fetchFn };
+    take(await placeNames(env.DB, todo, { ...opts, max: 0 }));
+    await save();
+    for (let asked = 0; asked < max && Date.now() < until; asked++) {
+      const next = todo.find((p) => !found.has(p.id));
+      if (!next) break;
+      if (asked) await new Promise((r) => setTimeout(r, gap));
+      const before = found.size;
+      take(await placeNames(env.DB, [next], { ...opts, max: 1 }));
+      if (found.size === before) break; // Nominatim busy or refused: try again another time
+      await save();
+    }
+  })().catch((e) => console.log('photo places:', e.message)).finally(() => { naming = null; });
+  return naming;
 }

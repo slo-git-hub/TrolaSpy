@@ -1,6 +1,7 @@
 import { archiveSessions } from '../../shared/charges.js';
 import { ensureDays } from '../../shared/stats.js';
 import { checkAlerts, checkQuietCharge } from '../../shared/alerts.js';
+import { namePhotos } from '../../shared/places.js';
 import { parseReading, COLUMNS } from './parse.js';
 import { handleBridge } from './bridge.js';
 
@@ -62,6 +63,7 @@ export default {
 
   async scheduled(event, env) {
     await checkQuietCharge(env.DB); // every 10 min: a charge LeafSpy stopped seeing has ended
+    await namePhotos(env); // and photo pins still without a place name get one
     if (event.cron !== DAILY_CRON) return;
     // Keep charging sessions before any readings go (a few stretches, if it has fallen behind).
     for (let i = 0; i < 3 && (await archiveSessions(env.DB)).more; i++);

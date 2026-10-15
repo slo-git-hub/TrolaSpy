@@ -81,3 +81,17 @@ test('photos a few steps apart share one name, even across spots', async () => {
   assert.equal(rows.filter((r) => r.place === 'Camping Lipa, Lipa, Slovenia').length, 5);
   assert.equal(asked.length, 1);
 });
+
+test('each name is kept as soon as it is found, even when Nominatim stops answering', async () => {
+  const env = { DB: d1(), PHOTOS: r2() };
+  let n = 0;
+  const fetchFn = async () => (n++ ? new Response('busy', { status: 429 }) : Response.json({ category: 'tourism', name: 'Lake', address: { country: 'Slovenia' } }));
+  const add = (lat, lon) => env.DB.sqlite.prepare('INSERT INTO photos (id, lat, lon, created_ts) VALUES (?, ?, ?, 1)').run(crypto.randomUUID(), lat, lon);
+  add(46, 14); add(47, 15); add(48, 16);
+  await namePhotos(env, { fetchFn, gap: 1 });
+  const places = () => env.DB.sqlite.prepare('SELECT place FROM photos ORDER BY lat').all().map((r) => r.place);
+  assert.deepEqual(places(), ['Lake, Slovenia', null, null]);
+  assert.equal(n, 2, 'stopped at the first refusal');
+  await namePhotos(env, { fetchFn, gap: 1, budgetMs: 0 }); // out of time: no lookups at all
+  assert.equal(n, 2);
+});
