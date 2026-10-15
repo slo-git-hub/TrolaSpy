@@ -120,7 +120,7 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     if (url.pathname === '/api/me') return json({ email: viewer.email, admin, photos: !!env.PHOTOS });
-    if (url.pathname === '/api/photos' && method === 'GET') return listPhotos(env, admin);
+    if (url.pathname === '/api/photos' && method === 'GET') return listPhotos(env, admin, (p) => ctx.waitUntil(p));
     if (url.pathname.startsWith('/photos/') && method === 'GET') {
       const key = url.pathname.slice('/photos/'.length);
       if (!/^[0-9a-f-]{36}((_t)?\.jpg|\.mp4)$/.test(key)) return new Response('Not found', { status: 404 });
@@ -149,7 +149,7 @@ export default {
       const origin = request.headers.get('Origin');
       if (method !== 'GET' && origin && origin !== url.origin) return json({ error: 'Bad origin.' }, 403);
       if (url.pathname === '/api/position') return positionAt(env, Number(url.searchParams.get('ts')) || Date.now());
-      if (url.pathname === '/api/photos' && method === 'POST') return uploadPhoto(request, env, viewer);
+      if (url.pathname === '/api/photos' && method === 'POST') return uploadPhoto(request, env, viewer, (p) => ctx.waitUntil(p));
       const m = url.pathname.match(/^\/api\/photos\/([0-9a-f-]{36})$/);
       if (m && method === 'PATCH') return updatePhoto(request, env, m[1]);
       if (m && method === 'DELETE') return deletePhoto(env, m[1]);

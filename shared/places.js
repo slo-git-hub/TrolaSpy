@@ -48,7 +48,7 @@ export async function placeNames(db, spots, { max = 3, more = 8, later = null, b
       let j;
       try {
         const r = await fetchFn(`${base}/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&extratags=1&accept-language=en`,
-          { headers: { 'user-agent': USER_AGENT, accept: 'application/json' } });
+          { headers: { 'user-agent': USER_AGENT, accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
         if (!r.ok) break; // busy or refused: try again another time
         j = await r.json();
       } catch { break; }

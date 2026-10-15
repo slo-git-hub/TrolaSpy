@@ -1,6 +1,7 @@
 // Photo and video pins: list, serve, upload, replace, caption and delete. Files are stored in R2 (binding
 // PHOTOS), metadata in D1. The browser shrinks photos and videos and makes the thumbnail (for a
 // video also a full-size frame) before uploading.
+import { placeNames, cellOf } from '../../shared/places.js';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 90 * 1024 * 1024; // 3 minutes at 720p is about 40 MB
@@ -13,12 +14,32 @@ const json = (data, status = 200) =>
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
 // The admin also gets each original file's name and size, so the page can tell what is on the map already.
-export async function listPhotos(env, admin = false) {
+// `later` (ctx.waitUntil) names the places of pins that have none yet, after the answer has gone.
+export async function listPhotos(env, admin = false, later = null) {
   const { results } = await env.DB.prepare(
-    `SELECT id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts${admin ? ', orig_name, orig_size' : ''}
+    `SELECT id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, place${admin ? ', orig_name, orig_size' : ''}
      FROM photos ORDER BY COALESCE(taken_ts, created_ts) DESC LIMIT 2000`
   ).all();
+  if (later && results.some((p) => p.place === null)) later(namePhotos(env));
   return json({ photos: results });
+}
+
+// Gives pins without a place name one, from OpenStreetMap (shared/places.js): spots looked up before
+// at once, and at most `max` new ones a run, a second apart, as Nominatim asks. Older pins get theirs
+// over a few page loads.
+let naming = null;
+export function namePhotos(env, { max = 15, fetchFn, gap } = {}) {
+  naming ||= (async () => {
+    const { results } = await env.DB.prepare('SELECT id, lat, lon FROM photos WHERE place IS NULL LIMIT 500').all();
+    if (!results.length) return;
+    const names = await placeNames(env.DB, results, { max, more: 0, base: env.NOMINATIM_URL || undefined, fetchFn, gap });
+    const named = results.filter((p) => names.has(cellOf(p)));
+    for (let i = 0; i < named.length; i += 50) {
+      await env.DB.batch(named.slice(i, i + 50).map((p) =>
+        env.DB.prepare('UPDATE photos SET place = ? WHERE id = ?').bind(names.get(cellOf(p)).label || '', p.id)));
+    }
+  })().catch(() => {}).finally(() => { naming = null; });
+  return naming;
 }
 
 // Videos are served in parts (HTTP Range) so they can start playing and skip ahead.
@@ -74,11 +95,11 @@ async function putFiles(env, id, f) {
 }
 
 const insertRow = (env, r) => env.DB.prepare(
-  'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, created_by, orig_name, orig_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-).bind(r.id, r.taken_ts, r.lat, r.lon, r.source, r.caption, r.width, r.height, r.duration, r.created_ts, r.created_by, r.orig_name ?? null, r.orig_size ?? null);
+  'INSERT INTO photos (id, taken_ts, lat, lon, source, caption, width, height, duration, created_ts, created_by, orig_name, orig_size, place) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+).bind(r.id, r.taken_ts, r.lat, r.lon, r.source, r.caption, r.width, r.height, r.duration, r.created_ts, r.created_by, r.orig_name ?? null, r.orig_size ?? null, r.place ?? null);
 const filesOf = (id) => [`photos/${id}.jpg`, `photos/${id}_t.jpg`, `photos/${id}.mp4`];
 
-export async function uploadPhoto(request, env, viewer) {
+export async function uploadPhoto(request, env, viewer, later = null) {
   if (!env.PHOTOS) return json({ error: 'Photo storage (R2) is not set up yet.' }, 503);
   const form = await request.formData();
   const f = readFiles(form);
@@ -97,6 +118,7 @@ export async function uploadPhoto(request, env, viewer) {
     orig_name: f.orig_name, orig_size: f.orig_size,
   };
   await insertRow(env, row).run();
+  if (later) later(namePhotos(env));
   delete row.created_by;
   return json({ photo: row }, 201);
 }

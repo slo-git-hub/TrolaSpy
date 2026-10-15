@@ -21,18 +21,22 @@
 </script>
 <style>
   :root {
-    --bg: #e8f1f1; --card: rgba(255,255,255,.93); --solid: #ffffff; --text: #123a49;
+    --bg: #eef3f3; --card: rgba(255,255,255,.93); --solid: #ffffff; --text: #123a49;
     --muted: #557280; --faint: #93aab3; --line: #d6e4e6; --navy: #175064;
     --accent: #04a4d8; --accent-ink: #0a6f96; --accent-soft: #d5eef8;
     --batt: #6f9e2f; --charge: #c27c0e; --charge-soft: #fbedc9; --off: #e3ecee;
     --shadow: 0 8px 30px rgba(23,80,100,.14);
+    --lift: 0 1px 2px rgba(16,50,60,.05), 0 18px 40px -18px rgba(16,60,75,.28); /* cards: soft, long shadow, no outline */
+    --heat: #e2704a; --violet: #7a6cf0;
     --s-bat: #c27c0e; --s-amb: #0a8fc4; --s-solar: #d29a00;
   }
-  :root[data-theme="dark"] { --bg: #0b1a20; --card: rgba(17,36,44,.93); --solid: #132932; --text: #e3f0f3;
+  :root[data-theme="dark"] { --bg: #0a1519; --card: rgba(17,36,44,.93); --solid: #13242b; --text: #e3f0f3;
       --muted: #9db6bf; --faint: #66808a; --line: #23404b; --navy: #cfe7ee;
       --accent: #2fc0f0; --accent-ink: #5fd0f5; --accent-soft: #10394a;
       --batt: #a4ce50; --charge: #f5c04a; --charge-soft: #3b2e0e; --off: #1b3540;
       --shadow: 0 8px 30px rgba(0,0,0,.45);
+      --lift: 0 1px 2px rgba(0,0,0,.4), 0 20px 44px -18px rgba(0,0,0,.8);
+      --heat: #f08a66; --violet: #9a8ff5;
       --s-bat: #c2841c; --s-amb: #1a9ccc; --s-solar: #f2c94c; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
@@ -44,8 +48,7 @@
     display: flex; flex-direction: column; gap: 12px; overflow-y: auto; scrollbar-width: none;
     padding-bottom: env(safe-area-inset-bottom); }
   .panel::-webkit-scrollbar { display: none; }
-  .card { background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); padding: 16px; }
+  .card { background: var(--solid); border-radius: 28px; box-shadow: var(--lift); padding: 18px; }
 
   header.card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
   header img.mark { width: 44px; height: 44px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px var(--line); }
@@ -68,16 +71,17 @@
   .hero { display: flex; align-items: center; gap: 16px; }
   .ring { position: relative; width: 112px; height: 112px; flex: none; }
   .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-  .ring circle { fill: none; stroke-width: 10; }
-  .ring .track { stroke: var(--off); }
+  .ring circle { fill: none; stroke-width: 12; }
+  .ring .track { stroke: color-mix(in srgb, var(--batt) 14%, var(--solid)); }
+  .ring.charging .track { stroke: color-mix(in srgb, var(--charge) 14%, var(--solid)); }
   .ring .val { stroke: var(--batt); stroke-linecap: round; transition: stroke-dashoffset .6s ease, stroke .3s; }
   .ring.charging .val { stroke: var(--charge); }
   .ring .num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
-  .ring b { font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  .ring b { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
   .ring small { color: var(--muted); font-size: 12px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
-    font-size: 13px; background: var(--off); color: var(--muted); }
+    font-size: 13px; font-weight: 600; background: var(--off); color: var(--muted); }
   .chip svg { width: 14px; height: 14px; }
   .chip.drive { background: var(--accent-soft); color: var(--accent-ink); }
   .chip.charge { background: var(--charge-soft); color: var(--charge); }
@@ -87,14 +91,14 @@
   #herocard { position: relative; }
   /* Help bubbles: a "?" on each card; the text shows in one bubble near it. */
   .help { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
-    background: var(--off); color: var(--muted); font: 700 12px/22px inherit; text-align: center; }
+    background: color-mix(in srgb, var(--accent) 10%, var(--solid)); color: var(--accent-ink); font: 700 12px/22px inherit; text-align: center; }
   .help:hover, .help.on { background: var(--accent-soft); color: var(--accent-ink); }
   .help.corner { position: absolute; top: 12px; right: 12px; }
   .hd { display: flex; align-items: center; gap: 6px; }
   /* Folding cards: a chevron at the end of the header; a folded card shows only its header. */
   .chart-head > .end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .fold { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
-    background: var(--off); color: var(--muted); display: flex; align-items: center; justify-content: center; }
+    background: color-mix(in srgb, var(--accent) 10%, var(--solid)); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; }
   .fold:hover { background: var(--accent-soft); color: var(--accent-ink); }
   .fold svg { width: 14px; height: 14px; transition: transform .15s; }
   .card.folded .fold svg { transform: rotate(-90deg); }
@@ -113,18 +117,27 @@
   .foot .links { display: flex; gap: 12px; align-items: center; }
   .foot .links a { display: inline-flex; }
 
-  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .tile { background: var(--solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
-  .tile span { display: block; color: var(--muted); font-size: 12px; }
-  .tile b { font-size: 18px; font-variant-numeric: tabular-nums; font-weight: 600; }
-  .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  /* Number tiles: a colour per kind of value (data-k), as a dot by the label and a faint wash. */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { --k: var(--accent); border-radius: 22px; padding: 12px 14px 13px; box-shadow: var(--lift);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--k) 9%, var(--solid)) 0%, var(--solid) 70%); }
+  .tile[data-k=power] { --k: var(--charge); }
+  .tile[data-k=batt] { --k: var(--batt); }
+  .tile[data-k=heat] { --k: var(--heat); }
+  .tile[data-k=air] { --k: var(--s-amb); }
+  .tile[data-k=trip] { --k: var(--violet); }
+  .tile span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .tile span::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--k);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--k) 20%, transparent); }
+  .tile b { display: block; margin-top: 4px; font-size: 24px; font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: -.02em; }
+  .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; letter-spacing: 0; }
 
   .chart-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-  .chart-head h2 { font-size: 14px; margin: 0; }
-  .seg { display: flex; background: var(--off); border-radius: 10px; padding: 3px; }
+  .chart-head h2 { font-size: 16px; margin: 0; letter-spacing: -.01em; }
+  .seg { display: flex; background: var(--off); border-radius: 999px; padding: 4px; }
   .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px;
-    padding: 4px 10px; border-radius: 8px; cursor: pointer; }
-  .seg button.active { background: var(--solid); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+  .seg button.active { background: var(--solid); color: var(--text); box-shadow: 0 2px 8px rgba(16,60,75,.18); }
   #admtab { flex-wrap: wrap; margin-bottom: 12px; }
   #admtab button { flex: 1 0 auto; padding: 4px; }
   .seg button svg { width: 15px; height: 15px; display: block; }
@@ -147,8 +160,7 @@
   .spop h3 { margin: 0 0 2px; font-size: 14px; }
   .spop .sub { color: var(--muted); font-size: 12px; }
   .spop a { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
-  .mapkey { background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: var(--text);
-    border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); font-size: 12px; }
+  .mapkey { background: var(--solid); color: var(--text); border-radius: 16px; box-shadow: var(--lift), 0 2px 10px rgba(16,50,60,.12); font-size: 12px; }
   .mapkey > button { display: flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; cursor: pointer;
     font: inherit; font-weight: 600; padding: 7px 11px; }
   .mapkey > button svg { width: 12px; height: 12px; transition: transform .15s; }
@@ -167,8 +179,8 @@
   .mapkey .ico .route { width: 22px; height: 5px; border-radius: 3px; background: var(--accent); }
   .mapkey .ico .photo { width: 18px; height: 18px; border-radius: 5px; border: 2px solid #fff; background: var(--s-amb); box-shadow: 0 1px 4px rgba(0,0,0,.3); }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
-  .stat span { display: block; color: var(--muted); font-size: 11px; }
-  .stat b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat span { display: block; color: var(--muted); font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .stat b { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .stat b small { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 2px; }
   .regen { margin-top: 12px; font-size: 12px; color: var(--muted); }
   .regen .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--off); margin: 4px 0; gap: 2px; }
@@ -244,7 +256,7 @@
   .foot a { color: var(--accent-ink); text-decoration: none; font-weight: 600; }
 
   .fab { position: absolute; z-index: 500; right: 16px; bottom: 24px; width: 46px; height: 46px; border-radius: 50%;
-    border: 1px solid var(--line); background: var(--card); color: var(--text); box-shadow: var(--shadow);
+    border: 0; background: var(--solid); color: var(--text); box-shadow: var(--lift), 0 2px 10px rgba(16,50,60,.14);
     display: grid; place-items: center; cursor: pointer; }
   .fab svg { width: 20px; height: 20px; }
   .fab[hidden] { display: none; }
@@ -307,6 +319,18 @@
   .lightbox .capedit input { flex: 1; min-width: 0; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 8px 10px;
     font: inherit; background: rgba(255,255,255,.1); color: #fff; }
   .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
+  /* Above the photo: where it is, and "2 of 5" when more were taken at the same spot; ‹ › to step. */
+  .lightbox .top { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 10px; color: #e3f0f3; font-weight: 600;
+    max-width: min(640px, calc(100vw - 120px)); text-align: center; }
+  .lightbox .top svg { width: 16px; height: 16px; flex: none; color: #5fd0f5; }
+  .lightbox .top small { color: #9db6bf; font-weight: 500; white-space: nowrap; }
+  .lightbox .top[hidden], .lightbox .step[hidden] { display: none; }
+  .lightbox .step { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; padding: 0;
+    background: rgba(255,255,255,.15); color: #fff; font-size: 28px; line-height: 1; display: grid; place-items: center; }
+  .lightbox .step:hover { background: rgba(255,255,255,.28); }
+  .lightbox .step.prev { left: 12px; }
+  .lightbox .step.next { right: 12px; }
+  @media (max-width: 760px) { .lightbox .step { top: auto; bottom: 18px; transform: none; } }
 
   .uploader { position: fixed; z-index: 1500; left: 50%; transform: translateX(-50%); bottom: 16px; width: min(500px, calc(100% - 24px));
     display: none; gap: 12px; align-items: flex-start; }
@@ -466,6 +490,9 @@
 </div>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
   <button class="btn close" id="lbclose" aria-label="Close">✕</button>
+  <button class="btn step prev" id="lbprev" aria-label="Previous photo here" hidden>‹</button>
+  <button class="btn step next" id="lbnext" aria-label="Next photo here" hidden>›</button>
+  <div class="top"><span id="lbplace"></span><small id="lbcount"></small></div>
   <img id="lbimg" alt="">
   <video id="lbvid" controls playsinline preload="metadata" hidden></video>
   <div class="meta"><div id="lbcaption"></div>
@@ -600,10 +627,10 @@
   <section class="card" id="aboutcard">
     <div class="chart-head"><div class="hd"><h2>About Trola</h2><button class="help" data-help="about" aria-label="What is this?">?</button></div></div>
     <div class="tiles">
-      <div class="tile"><span>Model · Nissan</span><b>e&#8209;NV200</b></div>
-      <div class="tile"><span>Year</span><b>2018</b></div>
-      <div class="tile"><span>Battery</span><b>40<small>kWh</small></b></div>
-      <div class="tile"><span>CO₂ saved since new</span><b id="co2total">–</b></div>
+      <div class="tile" data-k="drive"><span>Model · Nissan</span><b>e&#8209;NV200</b></div>
+      <div class="tile" data-k="trip"><span>Year</span><b>2018</b></div>
+      <div class="tile" data-k="batt"><span>Battery</span><b>40<small>kWh</small></b></div>
+      <div class="tile" data-k="batt"><span>CO₂ saved since new</span><b id="co2total">–</b></div>
     </div>
     <div class="regen">CO₂ saved is a rough guess: Trola against a diesel van of the same size over the same distance,
       counting the CO₂ from making Trola's electricity.</div>
@@ -869,19 +896,20 @@ function renderLatest({ reading: r, lastPosition, tz, co2_g_per_km: co2g }) {
 
   const kw = r.bat_volts !== null && r.bat_amps !== null ? (r.bat_volts * r.bat_amps) / 1000 : null;
   const powerLabel = kw === null ? 'Power' : charging ? 'Charging in' : kw < -0.2 ? 'Regen' : 'Power';
+  // The last item is the tile's colour: drive (blue), power, batt, heat, air, trip.
   const tiles = [
-    ['Speed', n(r.speed), 'km/h'],
-    [powerLabel, kw === null ? '–' : n(Math.abs(kw), 1), 'kW'],
-    ['Battery health', n(r.soh, 1), '%'],
-    ['Battery temp', n(r.bat_temp, 1), '°C'],
-    ['Outside', n(r.amb_temp, 1), '°C'],
-    ['Odometer', r.odo === null ? '–' : Number(r.odo).toLocaleString(), 'km'],
-    ['Pack', `${n(r.bat_volts)}`, `V · ${n(r.bat_amps, 1)} A`],
-    ['Elevation', n(r.elv), 'm'],
-    ['Motor', r.rpm === null ? '–' : Math.abs(r.rpm).toLocaleString(), 'rpm'],
-    ['Tablet battery', n(r.dev_bat), '%'],
+    ['Speed', n(r.speed), 'km/h', 'drive'],
+    [powerLabel, kw === null ? '–' : n(Math.abs(kw), 1), 'kW', 'power'],
+    ['Battery health', n(r.soh, 1), '%', 'batt'],
+    ['Battery temp', n(r.bat_temp, 1), '°C', 'heat'],
+    ['Outside', n(r.amb_temp, 1), '°C', 'air'],
+    ['Odometer', r.odo === null ? '–' : Number(r.odo).toLocaleString(), 'km', 'trip'],
+    ['Pack', `${n(r.bat_volts)}`, `V · ${n(r.bat_amps, 1)} A`, 'batt'],
+    ['Elevation', n(r.elv), 'm', 'trip'],
+    ['Motor', r.rpm === null ? '–' : Math.abs(r.rpm).toLocaleString(), 'rpm', 'drive'],
+    ['Tablet battery', n(r.dev_bat), '%', 'batt'],
   ];
-  $('tiles').innerHTML = tiles.map(([k, v, u]) => `<div class="tile"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
+  $('tiles').innerHTML = tiles.map(([k, v, u, c]) => `<div class="tile" data-k="${c}"><span>${k}</span><b>${v}<small>${u}</small></b></div>`).join('');
   $('co2total').innerHTML = r.odo && co2g ? co2((r.odo * co2g) / 1000) : '–';
 
   const pos = r.lat !== null ? r : lastPosition;
@@ -1216,12 +1244,39 @@ function knowPhoto(ph) {
 const pinOf = (f, taken = null) => onMap.name.get(`${f.name}|${f.size}`)
   || (taken ? onMap.taken.get(`${f.size}|${taken}`) || onMap.old.get(`${taken}|${isVideo(f) ? 1 : 0}`) : undefined);
 
+// Photos at the same spot, or whose pins overlap at this zoom, oldest first: the viewer steps through them.
+const lb = { group: [], i: 0 };
+const PIN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+function nearbyPhotos(ph) {
+  const mPerPx = 40075016.686 * Math.cos(ph.lat * Math.PI / 180) / 2 ** (map.getZoom() + 8);
+  const r = Math.max(150, 36 * mPerPx);
+  return photos.filter((x) => distM(x, ph) <= r).sort((a, b) => (a.taken_ts || a.created_ts) - (b.taken_ts || b.created_ts));
+}
 function openLightbox(ph) {
+  lb.group = nearbyPhotos(ph);
+  lb.i = lb.group.findIndex((x) => x.id === ph.id);
+  if (lb.i < 0) { lb.group = [ph]; lb.i = 0; }
+  showInLightbox(ph);
+}
+function stepLightbox(d) {
+  if (lb.group.length < 2 || !$('lbcapform').hidden) return;
+  lb.i = (lb.i + d + lb.group.length) % lb.group.length;
+  showInLightbox(lb.group[lb.i]);
+}
+function showInLightbox(ph) {
   lbPhoto = ph;
   const v = $('lbvid');
   $('lbimg').hidden = !!ph.duration; v.hidden = !ph.duration;
   if (ph.duration) { v.poster = `/photos/${ph.id}.jpg`; v.src = `/photos/${ph.id}.mp4`; $('lbimg').removeAttribute('src'); }
-  else $('lbimg').src = `/photos/${ph.id}.jpg`;
+  else {
+    if (v.getAttribute('src')) { v.pause(); v.removeAttribute('src'); v.load(); }
+    $('lbimg').src = `/photos/${ph.id}.jpg`;
+  }
+  $('lbplace').innerHTML = ph.place ? `${PIN_ICON} ${esc(ph.place)}` : '';
+  const many = lb.group.length > 1;
+  $('lbcount').textContent = many ? `${lb.i + 1} of ${lb.group.length} here` : '';
+  $('lbprev').hidden = $('lbnext').hidden = !many;
+  $('lbplace').closest('.top').hidden = !ph.place && !many;
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = ph.taken_ts ? fmtDate(ph.taken_ts) : `Added ${fmtDate(ph.created_ts)}`;
   $('lbdelete').hidden = !me.admin;
@@ -1262,10 +1317,23 @@ $('lbcapform').addEventListener('submit', async (e) => {
   btn.disabled = false;
 });
 $('lbclose').addEventListener('click', closeLightbox);
+$('lbprev').addEventListener('click', () => stepLightbox(-1));
+$('lbnext').addEventListener('click', () => stepLightbox(1));
 $('lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
 addEventListener('keydown', (e) => {
+  if (!$('lightbox').classList.contains('open')) return;
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target.tagName !== 'INPUT') { stepLightbox(e.key === 'ArrowLeft' ? -1 : 1); return; }
   if (e.key !== 'Escape') return;
   if (!$('lbcapform').hidden) editCaption(false); else closeLightbox();
+});
+// Swipe left or right on a phone (not on the video's own controls).
+let lbTouch = null;
+$('lightbox').addEventListener('touchstart', (e) => { lbTouch = e.target.closest('video, input') ? null : e.touches[0]; }, { passive: true });
+$('lightbox').addEventListener('touchend', (e) => {
+  if (!lbTouch) return;
+  const t = e.changedTouches[0], dx = t.clientX - lbTouch.clientX, dy = t.clientY - lbTouch.clientY;
+  lbTouch = null;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) stepLightbox(dx < 0 ? 1 : -1);
 });
 $('lbgo').addEventListener('click', () => {
   const ph = lbPhoto; closeLightbox();

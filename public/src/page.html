@@ -19,17 +19,19 @@
 </script>
 <style>
   :root {
-    --bg: #e8f1f1; --card: rgba(255,255,255,.93); --solid: #ffffff; --text: #123a49;
+    --bg: #eef3f3; --card: rgba(255,255,255,.93); --solid: #ffffff; --text: #123a49;
     --muted: #557280; --faint: #93aab3; --line: #d6e4e6; --navy: #175064;
     --accent: #04a4d8; --accent-ink: #0a6f96; --accent-soft: #d5eef8;
-    --charge: #c27c0e; --charge-soft: #fbedc9; --off: #e3ecee;
+    --charge: #c27c0e; --charge-soft: #fbedc9; --off: #e3ecee; --batt: #6f9e2f; --violet: #7a6cf0;
     --shadow: 0 8px 30px rgba(23,80,100,.14);
+    --lift: 0 1px 2px rgba(16,50,60,.05), 0 18px 40px -18px rgba(16,60,75,.28); /* cards: soft, long shadow, no outline */
   }
-  :root[data-theme="dark"] { --bg: #0b1a20; --card: rgba(17,36,44,.93); --solid: #132932; --text: #e3f0f3;
+  :root[data-theme="dark"] { --bg: #0a1519; --card: rgba(17,36,44,.93); --solid: #13242b; --text: #e3f0f3;
       --muted: #9db6bf; --faint: #66808a; --line: #23404b; --navy: #cfe7ee;
       --accent: #2fc0f0; --accent-ink: #5fd0f5; --accent-soft: #10394a;
-      --charge: #f5c04a; --charge-soft: #3b2e0e; --off: #1b3540;
-      --shadow: 0 8px 30px rgba(0,0,0,.45); }
+      --charge: #f5c04a; --charge-soft: #3b2e0e; --off: #1b3540; --batt: #a4ce50; --violet: #9a8ff5;
+      --shadow: 0 8px 30px rgba(0,0,0,.45);
+      --lift: 0 1px 2px rgba(0,0,0,.4), 0 20px 44px -18px rgba(0,0,0,.8); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 15px/1.4 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -41,8 +43,7 @@
     padding-bottom: env(safe-area-inset-bottom); }
   .panel::-webkit-scrollbar { display: none; }
   .panel > * { flex: none; }
-  .card { background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); padding: 16px; }
+  .card { background: var(--solid); border-radius: 28px; box-shadow: var(--lift); padding: 18px; }
 
   header.card { display: none; align-items: center; gap: 12px; padding: 12px 14px; }
   header img.mark { width: 44px; height: 44px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px var(--line); }
@@ -66,25 +67,31 @@
   .where .near { color: var(--muted); font-size: 13px; margin-top: 2px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
-    font-size: 13px; background: var(--off); color: var(--muted); }
+    font-size: 13px; font-weight: 600; background: var(--off); color: var(--muted); }
   .chip svg { width: 14px; height: 14px; }
   .chip.drive { background: var(--accent-soft); color: var(--accent-ink); }
   .chip.charge { background: var(--charge-soft); color: var(--charge); }
   .updated { color: var(--muted); font-size: 13px; margin-top: 8px; }
 
-  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .tile { background: var(--solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
-  .tile span { display: block; color: var(--muted); font-size: 12px; }
-  .tile b { font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 600; }
-  .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  /* Number tiles: a colour per kind of value (data-k), as a dot by the label and a faint wash. */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { --k: var(--accent); border-radius: 22px; padding: 12px 14px 13px; box-shadow: var(--lift);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--k) 9%, var(--solid)) 0%, var(--solid) 70%); }
+  .tile[data-k=batt] { --k: var(--batt); }
+  .tile[data-k=trip] { --k: var(--violet); }
+  .tile span { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+  .tile span::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--k);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--k) 20%, transparent); }
+  .tile b { display: block; margin-top: 4px; font-size: 24px; font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: -.02em; }
+  .tile b small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; letter-spacing: 0; }
   .tile.wide { grid-column: 1 / -1; }
   .tile[hidden] { display: none; }
   .about { color: var(--muted); font-size: 12px; margin-top: 10px; }
 
-  .card h3 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; }
+  .card h3 { margin: 0 0 10px; font-size: 16px; letter-spacing: -.01em; display: flex; justify-content: space-between; align-items: baseline; }
   .card h3 span { color: var(--muted); font-weight: 400; font-size: 12px; }
   .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .grid button { border: 0; padding: 0; aspect-ratio: 1; border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--off); }
+  .grid button { border: 0; padding: 0; aspect-ratio: 1; border-radius: 14px; overflow: hidden; cursor: pointer; background: var(--off); }
   .grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
   .foot { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; align-items: center;
@@ -122,6 +129,17 @@
   .btn { border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer;
     background: var(--off); color: var(--text); }
   .lightbox .close { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.15); color: #fff; }
+  /* Above the photo: where it is, and "2 of 5" when more were taken at the same spot; ‹ › to step. */
+  .lightbox .top { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 10px; color: #e3f0f3; font-weight: 600;
+    max-width: min(640px, calc(100vw - 120px)); text-align: center; }
+  .lightbox .top svg { width: 16px; height: 16px; flex: none; color: #5fd0f5; }
+  .lightbox .top small { color: #9db6bf; font-weight: 500; white-space: nowrap; }
+  .lightbox .step { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; padding: 0;
+    background: rgba(255,255,255,.15); color: #fff; font-size: 28px; line-height: 1; display: grid; place-items: center; }
+  .lightbox .step:hover { background: rgba(255,255,255,.28); }
+  .lightbox .step.prev { left: 12px; }
+  .lightbox .step.next { right: 12px; }
+  @media (max-width: 760px) { .lightbox .step { top: auto; bottom: 18px; transform: none; } }
   [hidden] { display: none !important; }
 
   /* Phones: map on top, cards scroll underneath like a sheet. */
@@ -140,6 +158,9 @@
 <div id="map"></div>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true">
   <button class="btn close" id="lbclose" aria-label="Close">✕</button>
+  <button class="btn step prev" id="lbprev" aria-label="Previous photo here" hidden>‹</button>
+  <button class="btn step next" id="lbnext" aria-label="Next photo here" hidden>›</button>
+  <div class="top"><span id="lbplace"></span><small id="lbcount"></small></div>
   <img id="lbimg" alt="">
   <video id="lbvid" controls playsinline preload="metadata" hidden></video>
   <div class="meta"><div id="lbcaption"></div><small id="lbdate"></small></div>
@@ -166,9 +187,9 @@
 
   <section class="card" id="totals" hidden>
     <div class="tiles">
-      <div class="tile"><span>This month</span><b id="month">–</b></div>
-      <div class="tile"><span>Odometer, all electric</span><b id="odo">–</b></div>
-      <div class="tile wide" id="co2tile" hidden><span>CO₂ saved compared with a diesel van, roughly</span><b id="co2">–</b></div>
+      <div class="tile" data-k="trip"><span>This month</span><b id="month">–</b></div>
+      <div class="tile" data-k="trip"><span>Odometer, all electric</span><b id="odo">–</b></div>
+      <div class="tile wide" id="co2tile" data-k="batt" hidden><span>CO₂ saved compared with a diesel van, roughly</span><b id="co2">–</b></div>
     </div>
     <div class="about">Trola is a 2018 Nissan e&#8209;NV200 with a 40 kWh battery.</div>
   </section>
@@ -249,10 +270,11 @@ async function showArea(a) {
   } catch (e) {}
 }
 
+let pubPhotos = [];
 function showPhotos(list) {
-  const key = list.map((p) => p.id).join();
+  const key = list.map((p) => `${p.id}${p.place || ''}`).join();
   if (key === shownPhotos) return;
-  shownPhotos = key;
+  shownPhotos = key; pubPhotos = list;
   photoLayer.clearLayers();
   $('grid').innerHTML = '';
   for (const ph of list) {
@@ -271,12 +293,40 @@ function showPhotos(list) {
   $('photocount').textContent = list.length > 9 ? `${list.length} on the map` : '';
   $('photocard').hidden = !list.length;
 }
+// Photos at the same spot, or whose pins overlap at this zoom, oldest first: the viewer steps through them.
+const lb = { group: [], i: 0 };
+const PIN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';
+const distM = (a, b) => {
+  const k = Math.PI / 180, x = (b.lon - a.lon) * k * Math.cos(((a.lat + b.lat) / 2) * k), y = (b.lat - a.lat) * k;
+  return Math.hypot(x, y) * 6371e3;
+};
 function openLightbox(ph) {
+  const r = Math.max(150, 36 * 40075016.686 * Math.cos(ph.lat * Math.PI / 180) / 2 ** (map.getZoom() + 8));
+  lb.group = pubPhotos.filter((x) => distM(x, ph) <= r).sort((a, b) => (a.taken_ts || a.created_ts) - (b.taken_ts || b.created_ts));
+  lb.i = lb.group.findIndex((x) => x.id === ph.id);
+  if (lb.i < 0) { lb.group = [ph]; lb.i = 0; }
+  showInLightbox(ph);
+}
+function stepLightbox(d) {
+  if (lb.group.length < 2) return;
+  lb.i = (lb.i + d + lb.group.length) % lb.group.length;
+  showInLightbox(lb.group[lb.i]);
+}
+function showInLightbox(ph) {
   lbPhoto = ph;
   const v = $('lbvid');
   $('lbimg').hidden = !!ph.duration; v.hidden = !ph.duration;
   if (ph.duration) { v.poster = `/photos/${ph.id}.jpg`; v.src = `/photos/${ph.id}.mp4`; $('lbimg').removeAttribute('src'); }
-  else $('lbimg').src = `/photos/${ph.id}.jpg`;
+  else {
+    if (v.getAttribute('src')) { v.pause(); v.removeAttribute('src'); v.load(); }
+    $('lbimg').src = `/photos/${ph.id}.jpg`;
+  }
+  $('lbplace').innerHTML = '';
+  if (ph.place) { $('lbplace').innerHTML = PIN_ICON; $('lbplace').append(` ${ph.place}`); }
+  const many = lb.group.length > 1;
+  $('lbcount').textContent = many ? `${lb.i + 1} of ${lb.group.length} here` : '';
+  $('lbprev').hidden = $('lbnext').hidden = !many;
+  $('lbplace').closest('.top').hidden = !ph.place && !many;
   $('lbcaption').textContent = ph.caption || '';
   $('lbdate').textContent = fmtDate(ph.taken_ts || ph.created_ts);
   $('lightbox').classList.add('open');
@@ -286,8 +336,23 @@ const closeLightbox = () => {
   const v = $('lbvid'); v.pause(); v.removeAttribute('src'); v.load();
 };
 $('lbclose').addEventListener('click', closeLightbox);
+$('lbprev').addEventListener('click', () => stepLightbox(-1));
+$('lbnext').addEventListener('click', () => stepLightbox(1));
 $('lightbox').addEventListener('click', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+addEventListener('keydown', (e) => {
+  if (!$('lightbox').classList.contains('open')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') stepLightbox(e.key === 'ArrowLeft' ? -1 : 1);
+});
+// Swipe left or right on a phone (not on the video's own controls).
+let lbTouch = null;
+$('lightbox').addEventListener('touchstart', (e) => { lbTouch = e.target.closest('video') ? null : e.touches[0]; }, { passive: true });
+$('lightbox').addEventListener('touchend', (e) => {
+  if (!lbTouch) return;
+  const t = e.changedTouches[0], dx = t.clientX - lbTouch.clientX, dy = t.clientY - lbTouch.clientY;
+  lbTouch = null;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > 2 * Math.abs(dy)) stepLightbox(dx < 0 ? 1 : -1);
+});
 $('lbgo').addEventListener('click', () => {
   const ph = lbPhoto; closeLightbox();
   scrollTo({ top: 0, behavior: 'smooth' });

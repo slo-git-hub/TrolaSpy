@@ -47,7 +47,7 @@ export async function publicWhere(db, now = Date.now()) {
     one('SELECT odo FROM readings WHERE ts >= ? AND ts <= ? AND odo > 0 ORDER BY ts LIMIT 1', monthStart(at), at),
   ]);
   const photos = cfg.photos
-    ? (await db.prepare(`SELECT id, lat, lon, caption, taken_ts, created_ts, duration FROM photos
+    ? (await db.prepare(`SELECT id, lat, lon, caption, taken_ts, created_ts, duration, place FROM photos
                           WHERE COALESCE(taken_ts, created_ts) <= ? ORDER BY COALESCE(taken_ts, created_ts) DESC LIMIT 500`)
       .bind(at).all()).results
     : [];

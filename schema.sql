@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS photos (
   created_by TEXT,
   duration   REAL,     -- seconds, for a video; NULL for a photo
   orig_name  TEXT,     -- the original file's name and size, to spot it if it is added again
-  orig_size  INTEGER
+  orig_size  INTEGER,
+  place      TEXT      -- where it is, from OpenStreetMap (shared/places.js); '' if nothing to name, NULL until looked up
 );
 
 -- Finished charging sessions, copied from readings daily so they are kept after 30 days.
