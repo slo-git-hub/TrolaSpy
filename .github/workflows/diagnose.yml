@@ -3,6 +3,11 @@ name: Diagnose readings
 # Manual only. Prints aggregate numbers (no positions) to check units from LeafSpy.
 on:
   workflow_dispatch:
+    inputs:
+      email_sha256:
+        description: 'Optional: sha256 of a lowercased email, to check it is on the Access list (never the email itself; the repo is public)'
+        required: false
+        default: ''
 
 jobs:
   diagnose:
@@ -16,6 +21,46 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - name: Access login list (counts only)
+        continue-on-error: true
+        env:
+          WANT: ${{ inputs.email_sha256 }}
+        run: |
+          node --input-type=module <<'JS'
+          import { createHash } from 'node:crypto';
+          const api = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/access`;
+          const get = async (path) => { const r = await fetch(api + path, { headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } });
+            const j = await r.json().catch(() => ({})); return { status: r.status, result: j.result, errors: (j.errors || []).map((e) => e.code) }; };
+          const sha = (s) => createHash('sha256').update(s).digest('hex');
+          const want = (process.env.WANT || '').trim().toLowerCase();
+          const out = {};
+          const apps = await get('/apps');
+          out.apps_status = apps.status; out.apps_errors = apps.errors;
+          const groups = await get('/groups');
+          const groupById = new Map((groups.result || []).map((g) => [g.id, g]));
+          const reusable = await get('/policies'); // policies shared between apps; an app may list only their ids
+          const policyById = new Map((reusable.result || []).map((p) => [p.id, p]));
+          const full = (p) => (p.include ? p : policyById.get(p.id) || p);
+          const emailsOf = (rules = []) => rules.flatMap((r) => r.email ? [r.email.email] : r.group ? emailsOf(groupById.get(r.group.id)?.include) : []);
+          const kinds = (rules = []) => rules.map((r) => Object.keys(r)[0]);
+          out.apps = (apps.result || []).map((a) => ({ type: a.type, self_hosted_domains: (a.self_hosted_domains || [a.domain]).length,
+            policies: (a.policies || []).map(full).map((p) => {
+              const emails = emailsOf(p.include);
+              const m = want ? emails.find((e) => sha(e.trim().toLowerCase()) === want) : undefined;
+              return { decision: p.decision, include: kinds(p.include), require: kinds(p.require), exclude: kinds(p.exclude), emails: emails.length,
+                odd: emails.filter((e) => e !== e.trim() || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e.trim())).length,
+                ...(want ? { asked_email: m === undefined ? 'not on this policy' : m === m.trim().toLowerCase() ? 'on it, exactly' : 'on it, but with capitals or spaces' } : {}) };
+            }) }));
+          const since = new Date(Date.now() - 7 * 864e5).toISOString();
+          const logs = await get(`/logs/access_requests?limit=1000&direction=desc&since=${since}`);
+          out.logs_status = logs.status;
+          const ev = logs.result || [];
+          out.logins_7d = { total: ev.length, allowed: ev.filter((e) => e.allowed).length, denied: ev.filter((e) => !e.allowed).length };
+          if (want) { const mine = ev.filter((e) => sha(String(e.user_email || '').trim().toLowerCase()) === want);
+            out.asked_email_logins_7d = { total: mine.length, allowed: mine.filter((e) => e.allowed).length,
+              last_min_ago: mine.length ? Math.round((Date.now() - Date.parse(mine[0].created_at)) / 60000) : null }; }
+          console.log(`::notice title=Access::${JSON.stringify(out)}`);
+          JS
       - name: Photo places (counts only)
         run: |
           r=$(npx wrangler d1 execute trolaspy --remote --json --command "SELECT (SELECT COUNT(*) FROM photos) photos,
